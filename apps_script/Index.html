@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clean Wash V2</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f3ecdf;
+      --paper: rgba(255, 252, 245, 0.92);
+      --ink: #172b2f;
+      --muted: #5d6d70;
+      --accent: #12736d;
+      --accent-strong: #0b5d58;
+      --warn: #b74b2f;
+      --ok: #2d7a4f;
+      --shadow: 0 18px 50px rgba(35, 50, 54, 0.14);
+      --radius: 22px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: 'Space Grotesk', sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(18, 115, 109, 0.16), transparent 35%),
+        radial-gradient(circle at bottom right, rgba(183, 75, 47, 0.18), transparent 28%),
+        linear-gradient(180deg, #f9f4ea 0%, var(--bg) 100%);
+      color: var(--ink);
+      min-height: 100vh;
+    }
+
+    .shell {
+      width: min(1220px, calc(100% - 28px));
+      margin: 18px auto 28px;
+    }
+
+    .hero,
+    .panel,
+    .machine-card,
+    .entry-box {
+      background: var(--paper);
+      -webkit-backdrop-filter: blur(10px);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(23, 43, 47, 0.08);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+
+    .stat-refresh {
+      font-size: 1.1rem;
+    }
+
+    .admin-actions-row {
+      margin-top: 12px;
+    }
+
+    .hero {
+      padding: 24px;
+      display: grid;
+      gap: 18px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .hero::after {
+      content: '';
+      position: absolute;
+      inset: auto -80px -80px auto;
+      width: 220px;
+      height: 220px;
+      background: radial-gradient(circle, rgba(18, 115, 109, 0.18), transparent 68%);
+      pointer-events: none;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: clamp(2rem, 4vw, 3.2rem);
+      line-height: 0.95;
+      letter-spacing: -0.04em;
+      max-width: 9ch;
+    }
+
+    .hero-subtitle {
+      color: var(--muted);
+      max-width: 60ch;
+      font-size: 0.98rem;
+    }
+
+    .hero-stats,
+    .machine-grid,
+    .admin-grid,
+    .history-grid {
+      display: grid;
+      gap: 16px;
+    }
+
+    .hero-stats {
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    }
+
+    .stat {
+      padding: 16px;
+      background: rgba(255, 255, 255, 0.55);
+      border-radius: 18px;
+    }
+
+    .stat-label {
+      color: var(--muted);
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .stat-value {
+      margin-top: 8px;
+      font-size: 1.8rem;
+      font-weight: 700;
+    }
+
+    .panel {
+      padding: 20px;
+      margin-top: 18px;
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: 0.84rem;
+      font-family: 'IBM Plex Mono', monospace;
+      background: rgba(23, 43, 47, 0.06);
+    }
+
+    .machine-grid {
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    }
+
+    .machine-card {
+      padding: 18px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .machine-card::before {
+      content: '';
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 6px;
+      background: var(--muted);
+    }
+
+    .machine-card.healthy::before {
+      background: var(--ok);
+    }
+
+    .machine-card.faulty::before {
+      background: var(--warn);
+    }
+
+    .machine-card.disabled::before {
+      background: #d17b18;
+    }
+
+    .machine-card.offline::before {
+      background: #7f8b8d;
+    }
+
+    .machine-name {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: start;
+    }
+
+    .machine-meta,
+    .machine-fields,
+    .form-row,
+    .entry-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .machine-meta {
+      margin-top: 10px;
+    }
+
+    .chip {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.78rem;
+      padding: 6px 8px;
+      background: rgba(23, 43, 47, 0.05);
+      border-radius: 999px;
+    }
+
+    .machine-fields {
+      margin-top: 14px;
+      flex-direction: column;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .admin-grid,
+    .history-grid {
+      grid-template-columns: 1.2fr 1fr;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+      flex: 1 1 160px;
+    }
+
+    label {
+      font-size: 0.82rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    select,
+    input,
+    button {
+      font: inherit;
+      border-radius: 14px;
+      border: 1px solid rgba(23, 43, 47, 0.16);
+      padding: 12px 14px;
+      background: rgba(255, 255, 255, 0.88);
+      color: var(--ink);
+    }
+
+    button {
+      cursor: pointer;
+      background: linear-gradient(180deg, var(--accent), var(--accent-strong));
+      color: #f9fbfb;
+      border: 0;
+      font-weight: 700;
+      transition: transform 140ms ease, box-shadow 140ms ease;
+      box-shadow: 0 10px 24px rgba(11, 93, 88, 0.22);
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+    }
+
+    button.secondary {
+      background: rgba(23, 43, 47, 0.08);
+      color: var(--ink);
+      box-shadow: none;
+    }
+
+    button.warn {
+      background: linear-gradient(180deg, #d56f42, #b74b2f);
+      box-shadow: 0 10px 24px rgba(183, 75, 47, 0.22);
+    }
+
+    button.ok {
+      background: linear-gradient(180deg, #2d7a4f, #225f3d);
+      box-shadow: 0 10px 24px rgba(45, 122, 79, 0.22);
+    }
+
+    pre {
+      margin: 0;
+      padding: 14px;
+      border-radius: 16px;
+      background: rgba(23, 43, 47, 0.06);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.82rem;
+      overflow: auto;
+      max-height: 280px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+
+    th,
+    td {
+      text-align: left;
+      padding: 10px 8px;
+      border-bottom: 1px solid rgba(23, 43, 47, 0.08);
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .entry-shell {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+
+    .entry-box {
+      width: min(720px, 100%);
+      padding: 28px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .entry-status {
+      padding: 14px 16px;
+      border-radius: 18px;
+      font-weight: 700;
+    }
+
+    .entry-status.ok {
+      background: rgba(45, 122, 79, 0.12);
+      color: var(--ok);
+    }
+
+    .entry-status.bad {
+      background: rgba(183, 75, 47, 0.12);
+      color: var(--warn);
+    }
+
+    @media (max-width: 900px) {
+      .admin-grid,
+      .history-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <script>
+    const BOOTSTRAP = <?!= JSON.stringify(bootstrap) ?>;
+  </script>
+
+  <div id="entryApp" class="entry-shell" hidden>
+    <div class="entry-box">
+      <div class="pill">Machine payment gate</div>
+      <h1 id="entryTitle">Machine access</h1>
+      <p class="muted" id="entrySubtitle"></p>
+      <div id="entryStatus" class="entry-status"></div>
+      <div class="entry-actions">
+        <button id="entryRefresh" class="secondary">Refresh status</button>
+        <button id="entryProceed">Continue to payment</button>
+      </div>
+      <pre id="entryJson"></pre>
+    </div>
+  </div>
+
+  <div id="adminApp" class="shell" hidden>
+    <section class="hero">
+      <div>
+        <div class="pill">Google Apps Script + Sheets + EMQX</div>
+        <h1>Clean Wash control deck.</h1>
+      </div>
+      <p class="hero-subtitle">This dashboard only issues bridge commands. Credit still lands through RS485 on the local CAISSE and ASPI boards, so local autonomy stays intact if the bridge or internet disappears.</p>
+      <div class="hero-stats">
+        <div class="stat">
+          <div class="stat-label">Machines tracked</div>
+          <div id="statMachines" class="stat-value">0</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Online now</div>
+          <div id="statOnline" class="stat-value">0</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Healthy now</div>
+          <div id="statHealthy" class="stat-value">0</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Last refresh</div>
+          <div id="statRefresh" class="stat-value stat-refresh">Waiting</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Machine health</h2>
+          <p class="muted">Polling every 8 seconds for live-ish status from the Sheets snapshot.</p>
+        </div>
+        <button onclick="loadDashboard()">Refresh now</button>
+      </div>
+      <div id="machineGrid" class="machine-grid"></div>
+    </section>
+
+    <section class="admin-grid">
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Admin actions</h2>
+            <p class="muted">Commands publish to EMQX, then the A8 bridge translates them to RS485.</p>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label for="machineSelect">Machine</label>
+            <select id="machineSelect"></select>
+          </div>
+          <div class="field">
+            <label for="amountCents">Amount cents</label>
+            <input id="amountCents" type="number" min="0" value="300">
+          </div>
+          <div class="field">
+            <label for="sessions">Sessions</label>
+            <input id="sessions" type="number" min="1" max="10" value="1">
+          </div>
+        </div>
+        <div class="form-row admin-actions-row">
+          <button onclick="sendCredit()">Add credit</button>
+          <button class="ok" onclick="enableSelectedDevice()">Reactivate</button>
+          <button class="warn" onclick="disableSelectedDevice()">Mettre hors service</button>
+          <button class="secondary" onclick="setSelectedCommMode('NORMAL')">Normal mode</button>
+          <button class="secondary" onclick="setSelectedCommMode('SAFE')">Safe mode</button>
+          <button class="secondary" onclick="sendSimple('reset_fault')">Reset fault</button>
+          <button class="secondary" onclick="refreshSelectedMachine()">Refresh status</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Command trace</h2>
+            <p class="muted">Latest publish result from Apps Script.</p>
+          </div>
+        </div>
+        <pre id="commandOutput">No command sent yet.</pre>
+      </div>
+    </section>
+
+    <section class="history-grid">
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Recent commands</h2>
+            <p class="muted">Staged acknowledgements move through RECEIVED, APPLIED, RUNNING, COMPLETED or FAULT.</p>
+          </div>
+        </div>
+        <div id="commandsTable"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Recent payments</h2>
+            <p class="muted">Stripe-triggered credits are only published after health gating.</p>
+          </div>
+        </div>
+        <div id="paymentsTable"></div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    let pollTimer = null;
+    let lastDashboard = null;
+
+    function machineClass(machine) {
+      if (String(machine.comm_mode || 'NORMAL').toUpperCase() === 'SAFE') return 'disabled';
+      if (!truthy(machine.online)) return 'offline';
+      if (!truthy(machine.enabled)) return 'disabled';
+      if (!truthy(machine.healthy) || machine.fault_code) return 'faulty';
+      return 'healthy';
+    }
+
+    function truthy(value) {
+      return value === true || value === 'TRUE' || value === 'true' || value === 1 || value === '1';
+    }
+
+    function formatBool(value) {
+      return truthy(value) ? 'yes' : 'no';
+    }
+
+    function renderMachines(machines) {
+      const grid = document.getElementById('machineGrid');
+      const select = document.getElementById('machineSelect');
+      grid.innerHTML = '';
+      select.innerHTML = '';
+
+      machines.forEach(machine => {
+        const option = document.createElement('option');
+        option.value = machine.machine_id;
+        option.textContent = `${machine.machine_name} (#${machine.machine_id}) [${machine.comm_mode || 'NORMAL'}]`;
+        select.appendChild(option);
+
+        const card = document.createElement('article');
+        card.className = `machine-card ${machineClass(machine)}`;
+        card.innerHTML = `
+          <div class="machine-name">
+            <div>
+              <h3>${machine.machine_name}</h3>
+              <p class="muted">${machine.machine_type}</p>
+            </div>
+            <div class="chip">${machine.online ? 'ONLINE' : 'OFFLINE'}</div>
+          </div>
+          <div class="machine-meta">
+            <span class="chip">healthy ${formatBool(machine.healthy)}</span>
+            <span class="chip">enabled ${formatBool(machine.enabled)}</span>
+            <span class="chip">mode ${machine.comm_mode || 'NORMAL'}</span>
+            <span class="chip">credit ${machine.credit_cents || 0} c</span>
+          </div>
+          <div class="machine-fields">
+            <span>Configured on bridge: ${formatBool(machine.configured_active)}</span>
+            <span>Communication mode: ${machine.comm_mode || 'NORMAL'}</span>
+            <span>Remote state: ${truthy(machine.enabled) ? 'ACTIVE' : 'HORS SERVICE'}</span>
+            <span>Program: ${machine.current_program || 0}</span>
+            <span>Running: ${formatBool(machine.running)}</span>
+            <span>Fault: ${machine.fault_code || 'NONE'}</span>
+            <span>Reason: ${machine.last_reason || '-'}</span>
+            <span>Presostat: ${formatBool(machine.presostat)}</span>
+            <span>Gel: ${formatBool(machine.gel)}</span>
+            <span>Shock: ${formatBool(machine.shock)}</span>
+            <span>Temp/Hum: ${machine.temperature || '-'} / ${machine.humidity || '-'}</span>
+            <span>Last snapshot: ${machine.last_snapshot_at || '-'}</span>
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+
+      document.getElementById('statMachines').textContent = String(machines.length);
+      document.getElementById('statOnline').textContent = String(machines.filter(machine => truthy(machine.online)).length);
+      document.getElementById('statHealthy').textContent = String(machines.filter(machine => truthy(machine.online) && truthy(machine.healthy)).length);
+      document.getElementById('statRefresh').textContent = new Date().toLocaleTimeString();
+    }
+
+    function renderTable(targetId, rows) {
+      const target = document.getElementById(targetId);
+      if (!rows || !rows.length) {
+        target.innerHTML = '<p class="muted">No data yet.</p>';
+        return;
+      }
+      const headers = Object.keys(rows[0]);
+      let html = '<table><thead><tr>' + headers.map(header => `<th>${header}</th>`).join('') + '</tr></thead><tbody>';
+      rows.forEach(row => {
+        html += '<tr>' + headers.map(header => `<td>${row[header] == null ? '' : row[header]}</td>`).join('') + '</tr>';
+      });
+      html += '</tbody></table>';
+      target.innerHTML = html;
+    }
+
+    function loadDashboard() {
+      google.script.run.withSuccessHandler(data => {
+        lastDashboard = data;
+        renderMachines(data.machines || []);
+        renderTable('commandsTable', data.commands || []);
+        renderTable('paymentsTable', data.payments || []);
+      }).getDashboardData_();
+    }
+
+    function showCommandResult(result) {
+      document.getElementById('commandOutput').textContent = JSON.stringify(result, null, 2);
+      loadDashboard();
+    }
+
+    function sendCredit() {
+      const machine = document.getElementById('machineSelect').value;
+      const amount = document.getElementById('amountCents').value;
+      const sessions = document.getElementById('sessions').value;
+      google.script.run.withSuccessHandler(showCommandResult).sendAdminCredit(machine, amount, sessions);
+    }
+
+    function sendSimple(commandType) {
+      const machine = document.getElementById('machineSelect').value;
+      google.script.run.withSuccessHandler(showCommandResult).sendAdminCommand(machine, commandType);
+    }
+
+    function disableSelectedDevice() {
+      const machine = document.getElementById('machineSelect').value;
+      google.script.run.withSuccessHandler(showCommandResult).disableDeviceFromWebapp(machine, 'Remote disable from mobile web app');
+    }
+
+    function enableSelectedDevice() {
+      const machine = document.getElementById('machineSelect').value;
+      google.script.run.withSuccessHandler(showCommandResult).enableDeviceFromWebapp(machine, 'Remote enable from mobile web app');
+    }
+
+    function refreshSelectedMachine() {
+      const machine = document.getElementById('machineSelect').value;
+      google.script.run.withSuccessHandler(showCommandResult).refreshMachineStatus(machine);
+    }
+
+    function setSelectedCommMode(mode) {
+      const machine = document.getElementById('machineSelect').value;
+      google.script.run.withSuccessHandler(showCommandResult).setMachineCommMode(machine, mode);
+    }
+
+    function renderEntryView() {
+      const app = document.getElementById('entryApp');
+      app.hidden = false;
+
+      const machineKey = BOOTSTRAP.entryMachineKey;
+      const machineStatus = BOOTSTRAP.entryMachineStatus;
+      document.getElementById('entryTitle').textContent = machineStatus && machineStatus.machine ? machineStatus.machine.machine_name : 'Machine access';
+      document.getElementById('entrySubtitle').textContent = 'This payment page checks the latest machine health before it exposes the Stripe link.';
+      document.getElementById('entryJson').textContent = JSON.stringify(machineStatus, null, 2);
+
+      const statusBox = document.getElementById('entryStatus');
+      const proceedButton = document.getElementById('entryProceed');
+      const refreshButton = document.getElementById('entryRefresh');
+
+      function updateStatus(response) {
+        const available = response && response.ok && response.available;
+        statusBox.className = 'entry-status ' + (available ? 'ok' : 'bad');
+        statusBox.textContent = available
+          ? 'Machine healthy. Payment can continue.'
+          : ((response && response.reason) || 'Payment blocked because the machine is offline, faulty, disabled, or in SAFE mode.');
+        proceedButton.disabled = !available;
+        document.getElementById('entryJson').textContent = JSON.stringify(response, null, 2);
+      }
+
+      refreshButton.addEventListener('click', () => {
+        google.script.run.withSuccessHandler(updateStatus).checkMachineAvailableForPayment(machineKey);
+      });
+
+      proceedButton.addEventListener('click', () => {
+        google.script.run.withSuccessHandler(url => {
+          if (!url) {
+            statusBox.className = 'entry-status bad';
+            statusBox.textContent = 'Stripe link base URL is not configured in Script Properties.';
+            return;
+          }
+          window.location.href = url;
+        }).buildStripeRedirectUrl(machineKey);
+      });
+
+      google.script.run.withSuccessHandler(updateStatus).checkMachineAvailableForPayment(machineKey);
+    }
+
+    function boot() {
+      if (BOOTSTRAP.machineEntryMode) {
+        renderEntryView();
+        return;
+      }
+      document.getElementById('adminApp').hidden = false;
+      loadDashboard();
+      pollTimer = setInterval(loadDashboard, 8000);
+    }
+
+    boot();
+  </script>
+</body>
+</html>
