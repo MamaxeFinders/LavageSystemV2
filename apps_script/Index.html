@@ -419,7 +419,7 @@
         <div class="panel-head">
           <div>
             <h2>Admin actions</h2>
-            <p class="muted">Commands publish to EMQX, then the A8 bridge translates them to RS485.</p>
+            <p class="muted">Commands publish to EMQX, then the F4 bridge translates them to RS485.</p>
           </div>
         </div>
         <div class="form-row">
@@ -438,8 +438,8 @@
         </div>
         <div class="form-row admin-actions-row">
           <button onclick="sendCredit()">Add credit</button>
-          <button class="ok" onclick="enableSelectedDevice()">Reactivate</button>
-          <button class="warn" onclick="disableSelectedDevice()">Mettre hors service</button>
+          <button class="warn" onclick="startMaintenanceSelectedDevice()">Maintenance ON (Disable)</button>
+          <button class="ok" onclick="endMaintenanceSelectedDevice()">Maintenance OFF (Re-enable)</button>
           <button class="secondary" onclick="setSelectedCommMode('NORMAL')">Normal mode</button>
           <button class="secondary" onclick="setSelectedCommMode('SAFE')">Safe mode</button>
           <button class="secondary" onclick="sendSimple('reset_fault')">Reset fault</button>
@@ -478,6 +478,16 @@
         </div>
         <div id="paymentsTable"></div>
       </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Provisioning queue</h2>
+          <p class="muted">Unassigned board UIDs and assignment progress.</p>
+        </div>
+      </div>
+      <div id="assignmentsTable"></div>
     </section>
   </div>
 
@@ -574,6 +584,7 @@
         renderMachines(data.machines || []);
         renderTable('commandsTable', data.commands || []);
         renderTable('paymentsTable', data.payments || []);
+        renderTable('assignmentsTable', data.assignments || []);
       }).getDashboardData_();
     }
 
@@ -602,6 +613,16 @@
     function enableSelectedDevice() {
       const machine = document.getElementById('machineSelect').value;
       google.script.run.withSuccessHandler(showCommandResult).enableDeviceFromWebapp(machine, 'Remote enable from mobile web app');
+    }
+
+    function startMaintenanceSelectedDevice() {
+      const machine = document.getElementById('machineSelect').value;
+      google.script.run.withSuccessHandler(showCommandResult).startMachineMaintenance(machine, 'Maintenance ON from admin dashboard');
+    }
+
+    function endMaintenanceSelectedDevice() {
+      const machine = document.getElementById('machineSelect').value;
+      google.script.run.withSuccessHandler(showCommandResult).endMachineMaintenance(machine, 'Maintenance OFF from admin dashboard');
     }
 
     function refreshSelectedMachine() {

@@ -23,10 +23,16 @@ const char* DEVICE_TYPE = "ASPI";
 const char* PREF_NAMESPACE = "aspi-v2";
 const char* PREF_DEVICE_ID = "device_id";
 const char* PREF_DEVICE_TYPE = "device_type";
+const char* PREF_BOARD_UID = "board_uid";
+const char* PREF_MACHINE_NAME = "machine_name";
+const unsigned long UNASSIGN_HOLD_MS = 5000;
 
-int deviceId = 1;
+int deviceId = 0;
 String deviceName = "ASPI";
 String rxLineBuffer;
+String boardUid;
+String assignedMachineId = "";
+unsigned long unassignHoldStartMs = 0;
 
 long creditDeciCents = 0;
 unsigned long previousCreditTickMs = 0;
@@ -106,7 +112,22 @@ void saveDeviceId(int newDeviceId) {
   preferences.begin(PREF_NAMESPACE, false);
   preferences.putInt(PREF_DEVICE_ID, newDeviceId);
   preferences.putString(PREF_DEVICE_TYPE, DEVICE_TYPE);
+  preferences.putString(PREF_BOARD_UID, boardUid);
+  preferences.putString(PREF_MACHINE_NAME, assignedMachineId);
   preferences.end();
+}
+
+String buildBoardUid() {
+  uint64_t chip = ESP.getEfuseMac();
+  char buffer[20];
+  snprintf(buffer, sizeof(buffer), "ASPI-%04X%08X", static_cast<uint16_t>(chip >> 32), static_cast<uint32_t>(chip));
+  return String(buffer);
+}
+
+void clearAssignment() {
+  deviceId = 0;
+  assignedMachineId = "";
+  saveDeviceId(deviceId);
 }
 
 void openConfigPortalIfNeeded() {
@@ -212,6 +233,9 @@ String buildStatusPayload(const char* reason) {
   String payload;
   payload = setPayloadValue(payload, "type", DEVICE_TYPE);
   payload = setPayloadValue(payload, "id", String(deviceId));
+  payload = setPayloadValue(payload, "board_uid", boardUid);
+  payload = setPayloadValue(payload, "machine", assignedMachineId);
+  payload = setPayloadValue(payload, "assign", deviceId > 0 ? "ASSIGNED" : "UNASSIGNED");
   payload = setPayloadValue(payload, "credit", String(roundedCreditCents()));
   payload = setPayloadValue(payload, "prog", String(selectedProgram));
   payload = setPayloadValue(payload, "run", boolAsString(!programStartPending && creditDeciCents > 0 && selectedProgram > 0));
@@ -274,6 +298,28 @@ void serviceRemote() {
     return;
   }
 
+  if (frame.command == "ASSIGN_DEVICE") {
+    String targetUid;
+    payloadValue(frame.arg2, "uid", targetUid);
+    if (targetUid.length() == 0 || targetUid == boardUid) {
+      int newId = frame.arg1.toInt();
+      String machineName;
+      payloadValue(frame.arg2, "machine", machineName);
+      if (newId >= 1 && newId <= 2) {
+        deviceId = newId;
+        assignedMachineId = machineName.length() > 0 ? machineName : String("ASPI_") + newId;
+        saveDeviceId(deviceId);
+        sendAck(frame.seq, "APPLIED", String("assigned=") + assignedMachineId);
+        sendStatus(frame.seq, "assigned");
+      } else {
+        sendFault(frame.seq, "BAD_ASSIGN", "Assigned rs485 id out of range");
+      }
+    } else {
+      sendFault(frame.seq, "UID_MISMATCH", "Assignment board UID mismatch");
+    }
+    return;
+  }
+
   if (frame.command == "ADD_CREDIT") {
     if (!machineEnabled) {
       sendFault(frame.seq, "DISABLED", "Machine disabled");
@@ -330,8 +376,11 @@ void serviceRemote() {
 void setup() {
   Serial.begin(115200);
   pinMode(CONFIG_BUTTON_PIN, INPUT_PULLUP);
+  boardUid = buildBoardUid();
   preferences.begin(PREF_NAMESPACE, true);
-  deviceId = preferences.getInt(PREF_DEVICE_ID, 1);
+  deviceId = preferences.getInt(PREF_DEVICE_ID, 0);
+  boardUid = preferences.getString(PREF_BOARD_UID, boardUid);
+  assignedMachineId = preferences.getString(PREF_MACHINE_NAME, assignedMachineId);
   preferences.end();
   saveDeviceId(deviceId);
   openConfigPortalIfNeeded();
@@ -352,14 +401,33 @@ void setup() {
   activateRelays(allOFF_Output, -1);
   cooperativeDelay(100);
   activateRelays(Standby_Output, -1);
-  displayMessage("READY           ", deviceName + " " + String(deviceId), true);
+  displayMessage("READY           ", deviceId > 0 ? assignedMachineId : "UNASSIGNED", true);
   sendStatus(nextLocalSeq(), "boot");
 }
 
 void loop() {
   serviceRemote();
 
+  uint8_t rawInputs = pcf8574_in1.digitalReadAll();
   int inputIndex = getInputIndexINPUTSTATUS();
+
+  const bool stopPressed = (rawInputs & (1 << 5)) == 0;
+  const bool buttonPressed = (rawInputs & (1 << 3)) == 0;
+  if (stopPressed && buttonPressed) {
+    if (unassignHoldStartMs == 0) {
+      unassignHoldStartMs = millis();
+    }
+    if (millis() - unassignHoldStartMs >= UNASSIGN_HOLD_MS) {
+      clearAssignment();
+      displayMessage("ASSIGNMENT CLR  ", "UNASSIGNED      ", true);
+      sendStatus(nextLocalSeq(), "assignment_cleared");
+      cooperativeDelay(800);
+      unassignHoldStartMs = 0;
+    }
+  } else {
+    unassignHoldStartMs = 0;
+  }
+
   if (!digitalRead(0)) {
     cooperativeDelay(2000);
     displayMessage("RESET           ", "3 sec           ", true);

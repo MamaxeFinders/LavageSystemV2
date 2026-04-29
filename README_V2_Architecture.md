@@ -163,20 +163,20 @@ Apps Script can compute:
 - week summary
 
 ## Repository structure
-- `firmware/Central_F4_MQTT_RS485_Master.ino`
+- `firmware/central/F4_Central_MQTT_RS485_Master.ino`
 - `firmware/shared/rs485_protocol.h`
 - `firmware/shared/rs485_protocol.cpp`
-- `firmware/caisse/CAISSE_V2_RS485.ino`
-- `firmware/aspi/ASPI_V2_RS485.ino`
+- `firmware/caisse/CAISSE_V2.ino`
+- `firmware/aspi/ASPI_V2.ino`
 - `apps_script/Code.gs`
 - `apps_script/Index.html`
 - `apps_script/appsscript.json`
 - `docs/DEPLOYMENT.md`
 
 ## Firmware to load
-- Load `firmware/caisse/CAISSE_V2_RS485.ino` on CAISSE ESP32 boards.
-- Load `firmware/aspi/ASPI_V2_RS485.ino` on ASPI ESP32 boards.
-- Load `firmware/Central_F4_MQTT_RS485_Master.ino` on the KC868-F4 central board.
+- Load `firmware/caisse/CAISSE_V2.ino` on CAISSE ESP32 boards.
+- Load `firmware/aspi/ASPI_V2.ino` on ASPI ESP32 boards.
+- Load `firmware/central/F4_Central_MQTT_RS485_Master.ino` on the KC868-F4 central board.
 
 Each device family now has one deployable firmware file in the repository.
 

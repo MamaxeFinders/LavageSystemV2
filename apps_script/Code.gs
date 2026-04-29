@@ -1,11 +1,38 @@
+const SHEET_SYSTEM_CONFIG = 'System_Config';
 const SHEET_MACHINES = 'Machines';
-const SHEET_EVENTS = 'Events';
+const SHEET_ASSIGNMENTS = 'Assignments';
 const SHEET_PAYMENTS = 'Payments';
 const SHEET_COMMANDS = 'Commands';
-const SHEET_DAILY = 'DailySummary';
+const SHEET_EVENTS = 'Events';
+const SHEET_FAULTS = 'Faults';
+const SHEET_DAILY = 'Daily_Summary';
+const SHEET_SETUP_LOG = 'Setup_Log';
 
 const MACHINE_HEADERS = [
   'machine_id',
+  'device_type',
+  'rs485_id',
+  'board_uid',
+  'enabled',
+  'maintenance_mode',
+  'healthy',
+  'last_seen',
+  'status_age_seconds',
+  'status',
+  'last_fault',
+  'current_credit',
+  'active_program',
+  'running_state',
+  'presostat',
+  'gel',
+  'shock',
+  'temperature',
+  'humidity',
+  'stripe_payment_link_1',
+  'stripe_payment_link_2',
+  'stripe_link_active',
+  'notes',
+  // Compatibility fields used by the current web dashboard.
   'machine_name',
   'machine_type',
   'bridge_id',
@@ -34,8 +61,13 @@ const MACHINE_HEADERS = [
 const EVENT_HEADERS = [
   'timestamp',
   'machine_id',
-  'machine_name',
+  'severity',
   'event_type',
+  'message',
+  'resolved',
+  'resolved_at',
+  // Compatibility fields
+  'machine_name',
   'value_1',
   'value_2',
   'source',
@@ -43,10 +75,31 @@ const EVENT_HEADERS = [
   'note'
 ];
 
+const ASSIGNMENT_HEADERS = [
+  'board_uid',
+  'detected_device_type',
+  'assigned_machine_id',
+  'assigned_rs485_id',
+  'assignment_status',
+  'assigned_at',
+  'last_seen'
+];
+
 const PAYMENT_HEADERS = [
   'timestamp',
   'stripe_event_id',
+  'payment_link_id',
   'machine_id',
+  'amount',
+  'currency',
+  'stripe_status',
+  'mqtt_publish_status',
+  'f4_ack_status',
+  'rs485_ack_status',
+  'final_status',
+  'manual_review_required',
+  'notes',
+  // Compatibility fields
   'machine_name',
   'amount_cents',
   'sessions',
@@ -58,17 +111,25 @@ const PAYMENT_HEADERS = [
 const COMMAND_HEADERS = [
   'timestamp',
   'command_id',
-  'target_machine',
-  'command_type',
-  'value',
   'source',
+  'target_machine_id',
+  'command_type',
+  'amount_or_credit',
   'status',
   'ack_stage',
+  'retries',
+  'error_message',
+  // Compatibility fields
+  'target_machine',
+  'value',
   'note',
   'updated_at'
 ];
 
+const FAULT_HEADERS = ['timestamp', 'machine_id', 'severity', 'event_type', 'message', 'resolved', 'resolved_at'];
 const DAILY_HEADERS = ['date', 'machine_id', 'machine_name', 'revenue_cents', 'session_count'];
+const SYSTEM_CONFIG_HEADERS = ['key', 'value', 'updated_at'];
+const SETUP_LOG_HEADERS = ['timestamp', 'action', 'result', 'details'];
 
 function normalizeMachinePropertyKey_(value) {
   return String(value || '')
@@ -154,6 +215,12 @@ function doPost(e) {
   if (action === 'command_ack') {
     return jsonOut_(ingestCommandAck_(body));
   }
+  if (action === 'provisioning_seen') {
+    return jsonOut_(registerProvisioningSeen_(body));
+  }
+  if (action === 'assign_device') {
+    return jsonOut_(assignDeviceFromProvisioning_(body));
+  }
   if (action === 'stripe') {
     return jsonOut_(handleStripeWebhook_(body));
   }
@@ -170,6 +237,128 @@ function renderIndex_(templateData) {
 
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
+}
+
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('Carwash Setup')
+    .addItem('Open Setup Panel', 'openSetupSidebar')
+    .addItem('Run Configuration Test', 'testSystemConfiguration')
+    .addToUi();
+}
+
+function openSetupSidebar() {
+  ensureSheets_();
+  const html = HtmlService.createTemplateFromFile('SetupSidebar').evaluate()
+    .setTitle('Carwash Setup')
+    .setWidth(420);
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+function setupStatus_() {
+  const props = PropertiesService.getScriptProperties();
+  const keys = [
+    'EMQX_API_BASE',
+    'EMQX_APP_ID',
+    'EMQX_APP_SECRET',
+    'MQTT_TOPIC_CMD',
+    'MQTT_TOPIC_STATUS',
+    'MQTT_TOPIC_ACK',
+    'STRIPE_WEBHOOK_SECRET',
+    'STRIPE_SECRET_KEY',
+    'WEB_APP_URL',
+    'ADMIN_ALLOWLIST'
+  ];
+  const status = {};
+  keys.forEach(key => status[key] = (props.getProperty(key) || '').length > 0 ? 'configured' : 'missing');
+  return status;
+}
+
+function logSetup_(action, result, details) {
+  ensureSheet_(SHEET_SETUP_LOG, SETUP_LOG_HEADERS).appendRow([
+    new Date(),
+    action,
+    result,
+    details || ''
+  ]);
+}
+
+function getSetupConfigStatus() {
+  ensureSheets_();
+  return { ok: true, status: setupStatus_() };
+}
+
+function saveSetupConfig(input) {
+  ensureSheets_();
+  const props = PropertiesService.getScriptProperties();
+  const entries = {
+    EMQX_API_BASE: String(input.emqxApiBase || '').trim(),
+    EMQX_APP_ID: String(input.emqxAppId || '').trim(),
+    EMQX_APP_SECRET: String(input.emqxAppSecret || '').trim(),
+    MQTT_TOPIC_CMD: String(input.mqttTopicCmd || '').trim(),
+    MQTT_TOPIC_STATUS: String(input.mqttTopicStatus || '').trim(),
+    MQTT_TOPIC_ACK: String(input.mqttTopicAck || '').trim(),
+    STRIPE_WEBHOOK_SECRET: String(input.stripeWebhookSecret || '').trim(),
+    STRIPE_SECRET_KEY: String(input.stripeSecretKey || '').trim(),
+    WEB_APP_URL: String(input.webAppUrl || '').trim(),
+    ADMIN_ALLOWLIST: String(input.adminAllowlist || '').trim()
+  };
+
+  Object.keys(entries).forEach(key => {
+    if (entries[key]) {
+      props.setProperty(key, entries[key]);
+    }
+  });
+
+  logSetup_('save_setup_config', 'ok', 'Setup properties updated');
+  return { ok: true, status: setupStatus_() };
+}
+
+function testEmqxPublish() {
+  try {
+    const ping = {
+      id: 'test_' + Date.now(),
+      type: 'refresh_status',
+      source: 'setup_test',
+      machine_id: 1,
+      machine: 'CAISSE_1'
+    };
+    const result = publishCommandToEmqx_(ping);
+    logSetup_('test_emqx_publish', result.ok ? 'ok' : 'failed', JSON.stringify(result));
+    return { ok: result.ok, result: result };
+  } catch (error) {
+    logSetup_('test_emqx_publish', 'failed', String(error));
+    return { ok: false, error: String(error) };
+  }
+}
+
+function testStripeConnection() {
+  try {
+    const result = stripeApiRequest_('balance', {});
+    logSetup_('test_stripe_connection', result.ok ? 'ok' : 'failed', JSON.stringify(result));
+    return { ok: result.ok, result: result };
+  } catch (error) {
+    logSetup_('test_stripe_connection', 'failed', String(error));
+    return { ok: false, error: String(error) };
+  }
+}
+
+function testSheetWrite() {
+  try {
+    logSetup_('test_sheet_write', 'ok', 'Sheet write test succeeded');
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: String(error) };
+  }
+}
+
+function testSystemConfiguration() {
+  ensureSheets_();
+  const status = setupStatus_();
+  const missing = Object.keys(status).filter(key => status[key] === 'missing');
+  const result = { ok: missing.length === 0, missing: missing };
+  logSetup_('test_system_configuration', result.ok ? 'ok' : 'warning', missing.join(',') || 'all configured');
+  return result;
 }
 
 function jsonOut_(obj) {
@@ -195,21 +384,31 @@ function ensureSheet_(sheetName, headers) {
   if (sheet.getLastRow() === 0) {
     sheet.appendRow(headers);
   } else {
-    const currentHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-    if (String(currentHeaders.join('|')) !== String(headers.join('|'))) {
-      sheet.clearContents();
-      sheet.appendRow(headers);
+    const currentHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(String);
+    let changed = false;
+    headers.forEach(header => {
+      if (currentHeaders.indexOf(header) === -1) {
+        currentHeaders.push(header);
+        changed = true;
+      }
+    });
+    if (changed) {
+      sheet.getRange(1, 1, 1, currentHeaders.length).setValues([currentHeaders]);
     }
   }
   return sheet;
 }
 
 function ensureSheets_() {
+  ensureSheet_(SHEET_SYSTEM_CONFIG, SYSTEM_CONFIG_HEADERS);
   ensureSheet_(SHEET_MACHINES, MACHINE_HEADERS);
+  ensureSheet_(SHEET_ASSIGNMENTS, ASSIGNMENT_HEADERS);
   ensureSheet_(SHEET_EVENTS, EVENT_HEADERS);
+  ensureSheet_(SHEET_FAULTS, FAULT_HEADERS);
   ensureSheet_(SHEET_PAYMENTS, PAYMENT_HEADERS);
   ensureSheet_(SHEET_COMMANDS, COMMAND_HEADERS);
   ensureSheet_(SHEET_DAILY, DAILY_HEADERS);
+  ensureSheet_(SHEET_SETUP_LOG, SETUP_LOG_HEADERS);
 }
 
 function sheetToObjects_(sheet, limit) {
@@ -227,6 +426,16 @@ function sheetToObjects_(sheet, limit) {
   }).reverse();
 }
 
+function headerIndexMap_(headers) {
+  const map = {};
+  headers.forEach((header, index) => map[String(header)] = index);
+  return map;
+}
+
+function buildRowFromObject_(headers, objectLike) {
+  return headers.map(header => objectLike[header] == null ? '' : objectLike[header]);
+}
+
 function findMachineRow_(sheet, machineKey) {
   const values = sheet.getDataRange().getValues();
   for (let row = 1; row < values.length; row++) {
@@ -239,32 +448,51 @@ function findMachineRow_(sheet, machineKey) {
 
 function upsertMachine_(machine) {
   const sheet = ensureSheet_(SHEET_MACHINES, MACHINE_HEADERS);
-  const rowValues = [
-    machine.id || '',
-    machine.name || '',
-    machine.type || '',
-    machine.bridge_id || '',
-    machine.site_id || '',
-    machine.configured_active !== false,
-    normalizeCommMode_(machine.comm_mode),
-    machine.online === true,
-    machine.healthy === true,
-    machine.enabled !== false,
-    machine.fault_code || machine.fault || '',
-    machine.reason || machine.last_reason || '',
-    Number(machine.credit_cents || 0),
-    Number(machine.current_program || machine.program || 0),
-    machine.running === true,
-    machine.presostat === true,
-    machine.gel === true,
-    machine.shock === true,
-    machine.temperature === undefined ? '' : machine.temperature,
-    machine.humidity === undefined ? '' : machine.humidity,
-    new Date(),
-    new Date(),
-    machine.last_payment_id || '',
-    machine.firmware_version || ''
-  ];
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(String);
+  const statusAge = machine.last_seen_ms_ago == null ? '' : Math.floor(Number(machine.last_seen_ms_ago) / 1000);
+  const machineStatus = machine.maintenance_mode ? 'MAINTENANCE'
+    : (machine.enabled === false ? 'DISABLED'
+      : (machine.online ? (machine.healthy ? 'OK' : 'FAULT') : 'STALE'));
+  const rowValues = buildRowFromObject_(headers, {
+    machine_id: machine.id || machine.machine_id || '',
+    device_type: machine.type || machine.machine_type || '',
+    rs485_id: machine.id || machine.machine_id || '',
+    board_uid: machine.board_uid || '',
+    enabled: machine.enabled !== false,
+    maintenance_mode: machine.maintenance_mode === true,
+    healthy: machine.healthy === true,
+    last_seen: new Date(),
+    status_age_seconds: statusAge,
+    status: machineStatus,
+    last_fault: machine.fault_code || machine.fault || '',
+    current_credit: Number(machine.credit_cents || 0),
+    active_program: Number(machine.current_program || machine.program || 0),
+    running_state: machine.running === true,
+    presostat: machine.presostat === true,
+    gel: machine.gel === true,
+    shock: machine.shock === true,
+    temperature: machine.temperature === undefined ? '' : machine.temperature,
+    humidity: machine.humidity === undefined ? '' : machine.humidity,
+    stripe_payment_link_1: machine.stripe_payment_link_1 || '',
+    stripe_payment_link_2: machine.stripe_payment_link_2 || '',
+    stripe_link_active: machine.stripe_link_active === true,
+    notes: machine.notes || '',
+    machine_name: machine.name || machine.machine_name || '',
+    machine_type: machine.type || machine.machine_type || '',
+    bridge_id: machine.bridge_id || '',
+    site_id: machine.site_id || '',
+    configured_active: machine.configured_active !== false,
+    comm_mode: normalizeCommMode_(machine.comm_mode),
+    online: machine.online === true,
+    fault_code: machine.fault_code || machine.fault || '',
+    last_reason: machine.reason || machine.last_reason || '',
+    credit_cents: Number(machine.credit_cents || 0),
+    current_program: Number(machine.current_program || machine.program || 0),
+    running: machine.running === true,
+    last_snapshot_at: new Date(),
+    last_payment_id: machine.last_payment_id || '',
+    firmware_version: machine.firmware_version || ''
+  });
 
   const row = findMachineRow_(sheet, machine.id || machine.name);
   if (row > 0) {
@@ -283,25 +511,32 @@ function deactivateMissingMachines_(bridgeId, activeMachineIds) {
   if (values.length < 2) {
     return;
   }
+  const headers = values[0].map(String);
+  const map = headerIndexMap_(headers);
   for (let row = 1; row < values.length; row++) {
-    if (String(values[row][3]) !== String(bridgeId)) {
+    if (String(values[row][map.bridge_id]) !== String(bridgeId)) {
       continue;
     }
-    if (activeMachineIds.indexOf(String(values[row][0])) !== -1) {
+    if (activeMachineIds.indexOf(String(values[row][map.machine_id])) !== -1) {
       continue;
     }
     const updated = values[row].slice();
-    updated[5] = false;
-    updated[6] = 'SAFE';
-    updated[7] = false;
-    updated[8] = false;
-    updated[9] = truthy_(updated[9]);
-    updated[10] = 'NOT_CONFIGURED';
-    updated[11] = 'not_configured';
-    updated[12] = 0;
-    updated[13] = 0;
-    updated[14] = false;
-    updated[21] = new Date();
+    updated[map.configured_active] = false;
+    updated[map.comm_mode] = 'SAFE';
+    updated[map.online] = false;
+    updated[map.healthy] = false;
+    updated[map.enabled] = true;
+    updated[map.fault_code] = 'NOT_CONFIGURED';
+    updated[map.last_reason] = 'not_configured';
+    updated[map.credit_cents] = 0;
+    updated[map.current_program] = 0;
+    updated[map.running] = false;
+    if (map.status != null) {
+      updated[map.status] = 'STALE';
+    }
+    if (map.last_snapshot_at != null) {
+      updated[map.last_snapshot_at] = new Date();
+    }
     sheet.getRange(row + 1, 1, 1, updated.length).setValues([updated]);
   }
 }
@@ -310,8 +545,13 @@ function appendEvent_(event) {
   ensureSheet_(SHEET_EVENTS, EVENT_HEADERS).appendRow([
     new Date(),
     event.machine_id || '',
-    event.machine_name || '',
+    event.severity || 'INFO',
     event.event_type || '',
+    event.message || event.note || '',
+    event.resolved === true,
+    event.resolved_at || '',
+    // Compatibility fields
+    event.machine_name || '',
     event.value_1 || '',
     event.value_2 || '',
     event.source || '',
@@ -334,12 +574,17 @@ function upsertCommandLog_(cmd) {
   const rowValues = [
     cmd.timestamp || new Date(),
     cmd.command_id || '',
-    cmd.target_machine || '',
-    cmd.command_type || '',
-    cmd.value || '',
     cmd.source || '',
+    cmd.target_machine_id || cmd.target_machine || '',
+    cmd.command_type || '',
+    cmd.amount_or_credit || cmd.value || '',
     cmd.status || '',
     cmd.ack_stage || '',
+    cmd.retries || 0,
+    cmd.error_message || '',
+    // Compatibility fields
+    cmd.target_machine || '',
+    cmd.value || '',
     cmd.note || '',
     new Date()
   ];
@@ -370,10 +615,12 @@ function getDashboardData_() {
   return {
     ok: true,
     machines: machines,
+    assignments: sheetToObjects_(ensureSheet_(SHEET_ASSIGNMENTS, ASSIGNMENT_HEADERS), 100),
     events: sheetToObjects_(ensureSheet_(SHEET_EVENTS, EVENT_HEADERS), 50),
     commands: sheetToObjects_(ensureSheet_(SHEET_COMMANDS, COMMAND_HEADERS), 50),
     payments: sheetToObjects_(ensureSheet_(SHEET_PAYMENTS, PAYMENT_HEADERS), 50),
-    dailySummary: sheetToObjects_(ensureSheet_(SHEET_DAILY, DAILY_HEADERS), 20)
+    dailySummary: sheetToObjects_(ensureSheet_(SHEET_DAILY, DAILY_HEADERS), 20),
+    setupLog: sheetToObjects_(ensureSheet_(SHEET_SETUP_LOG, SETUP_LOG_HEADERS), 50)
   };
 }
 
@@ -417,8 +664,8 @@ function getStripeBindingForMachine_(machine) {
   const normalized = normalizeMachinePropertyKey_(machineName);
   return {
     normalized: normalized,
-    productId: props.getProperty('STRIPE_PRODUCT_' + normalized) || '',
-    paymentLinkId: props.getProperty('STRIPE_PAYMENT_LINK_' + normalized) || ''
+    productId: machine.stripe_product_id || props.getProperty('STRIPE_PRODUCT_' + normalized) || '',
+    paymentLinkId: machine.stripe_payment_link_1 || machine.stripe_payment_link_2 || props.getProperty('STRIPE_PAYMENT_LINK_' + normalized) || ''
   };
 }
 
@@ -514,6 +761,7 @@ function ingestCommandAck_(body) {
   appendEvent_({
     machine_id: '',
     machine_name: body.target_machine || '',
+    severity: body.ack_stage === 'FAULT' ? 'CRITICAL' : 'INFO',
     event_type: 'COMMAND_' + (body.ack_stage || 'UPDATE'),
     value_1: body.command_type || '',
     value_2: body.status || '',
@@ -521,7 +769,39 @@ function ingestCommandAck_(body) {
     seq: '',
     note: [body.command_id || '', body.note || ''].filter(Boolean).join(' | ')
   });
+  updatePaymentAckStatus_(body.command_id || '', body.ack_stage || '', body.status || '', body.note || '');
   return { ok: true };
+}
+
+function updatePaymentAckStatus_(commandId, ackStage, status, note) {
+  if (!commandId) {
+    return;
+  }
+  const sheet = ensureSheet_(SHEET_PAYMENTS, PAYMENT_HEADERS);
+  const values = sheet.getDataRange().getValues();
+  if (values.length < 2) {
+    return;
+  }
+  const headers = values[0].map(String);
+  const map = headerIndexMap_(headers);
+  for (let row = values.length - 1; row >= 1; row--) {
+    if (String(values[row][map.command_id]) !== String(commandId)) {
+      continue;
+    }
+    const updated = values[row].slice();
+    updated[map.f4_ack_status] = ackStage || updated[map.f4_ack_status];
+    updated[map.rs485_ack_status] = ackStage || updated[map.rs485_ack_status];
+    if (ackStage === 'COMPLETED' || status === 'completed') {
+      updated[map.final_status] = 'PAID_MACHINE_ACK_OK';
+      updated[map.manual_review_required] = false;
+    } else if (ackStage === 'FAULT' || status === 'failed' || status === 'fault') {
+      updated[map.final_status] = 'PAID_NO_MACHINE_ACK';
+      updated[map.manual_review_required] = true;
+      updated[map.notes] = note || 'Command failed in F4/RS485 ack path';
+    }
+    sheet.getRange(row + 1, 1, 1, updated.length).setValues([updated]);
+    break;
+  }
 }
 
 function publishCommandToEmqx_(cmd) {
@@ -608,18 +888,34 @@ function sendAdminCredit(machineKey, amountCents, sessions) {
   return result;
 }
 
-function disableDeviceFromWebapp(machineKey, note) {
+function disableDeviceFromWebapp(machineKey, note, source) {
   return publishMachineCommand_(machineKey, 'disable', note || 'Remote disable from mobile web app', {
-    source: 'admin_mobile',
+    source: source || 'admin_mobile',
     note: note || 'Remote disable from mobile web app'
   });
 }
 
-function enableDeviceFromWebapp(machineKey, note) {
+function enableDeviceFromWebapp(machineKey, note, source) {
   return publishMachineCommand_(machineKey, 'enable', note || 'Remote enable from mobile web app', {
-    source: 'admin_mobile',
+    source: source || 'admin_mobile',
     note: note || 'Remote enable from mobile web app'
   });
+}
+
+function startMachineMaintenance(machineKey, note) {
+  return disableDeviceFromWebapp(
+    machineKey,
+    note || 'Remote maintenance enabled: machine disabled from dashboard',
+    'admin_maintenance'
+  );
+}
+
+function endMachineMaintenance(machineKey, note) {
+  return enableDeviceFromWebapp(
+    machineKey,
+    note || 'Remote maintenance ended: machine re-enabled from dashboard',
+    'admin_maintenance'
+  );
 }
 
 function sendAdminCommand(machineKey, commandType) {
@@ -645,11 +941,124 @@ function setMachineCommMode(machineKey, commMode) {
   });
 }
 
+function registerProvisioningSeen_(body) {
+  const sheet = ensureSheet_(SHEET_ASSIGNMENTS, ASSIGNMENT_HEADERS);
+  const values = sheet.getDataRange().getValues();
+  const boardUid = String(body.board_uid || '').trim();
+  if (!boardUid) {
+    return { ok: false, error: 'missing_board_uid' };
+  }
+
+  let rowIndex = -1;
+  for (let row = 1; row < values.length; row++) {
+    if (String(values[row][0]) === boardUid) {
+      rowIndex = row + 1;
+      break;
+    }
+  }
+
+  const rowValues = [
+    boardUid,
+    body.detected_device_type || '',
+    body.assigned_machine_id || '',
+    body.assigned_rs485_id || '',
+    body.assignment_status || 'UNASSIGNED',
+    body.assigned_at || '',
+    new Date()
+  ];
+
+  if (rowIndex > 0) {
+    sheet.getRange(rowIndex, 1, 1, rowValues.length).setValues([rowValues]);
+  } else {
+    sheet.appendRow(rowValues);
+  }
+  return { ok: true };
+}
+
+function getProvisioningData() {
+  ensureSheets_();
+  return {
+    ok: true,
+    assignments: sheetToObjects_(ensureSheet_(SHEET_ASSIGNMENTS, ASSIGNMENT_HEADERS), 200),
+    machines: sheetToObjects_(ensureSheet_(SHEET_MACHINES, MACHINE_HEADERS), 200)
+  };
+}
+
+function assignDeviceFromProvisioning_(body) {
+  const boardUid = String(body.board_uid || '').trim();
+  const machineId = String(body.assigned_machine_id || '').trim();
+  const rs485Id = Number(body.assigned_rs485_id || 0);
+  if (!boardUid || !machineId || !rs485Id) {
+    return { ok: false, error: 'missing_assignment_fields' };
+  }
+
+  registerProvisioningSeen_({
+    board_uid: boardUid,
+    detected_device_type: body.detected_device_type || '',
+    assigned_machine_id: machineId,
+    assigned_rs485_id: rs485Id,
+    assignment_status: 'PENDING_ASSIGN',
+    assigned_at: new Date()
+  });
+
+  const cmd = {
+    id: 'assign_' + Date.now(),
+    source: 'admin_setup',
+    type: 'assign_device',
+    machine: machineId,
+    machine_id: rs485Id,
+    assigned_machine_id: machineId,
+    assigned_rs485_id: rs485Id,
+    board_uid: boardUid,
+    detected_device_type: body.detected_device_type || ''
+  };
+
+  const publish = publishCommandToEmqx_(cmd);
+  upsertCommandLog_({
+    timestamp: new Date(),
+    command_id: cmd.id,
+    source: 'admin_setup',
+    target_machine_id: machineId,
+    target_machine: machineId,
+    command_type: cmd.type,
+    amount_or_credit: rs485Id,
+    value: String(rs485Id),
+    status: publish.ok ? 'published' : 'failed',
+    ack_stage: 'MQTT',
+    retries: 0,
+    error_message: publish.ok ? '' : (publish.body || ''),
+    note: publish.body || ''
+  });
+
+  logSetup_('assign_device', publish.ok ? 'ok' : 'failed', machineId + ' <= ' + boardUid);
+  return { ok: publish.ok, publish: publish, command: cmd };
+}
+
+function assignDeviceFromProvisioning(boardUid, machineId, rs485Id, detectedType) {
+  return assignDeviceFromProvisioning_({
+    board_uid: boardUid,
+    assigned_machine_id: machineId,
+    assigned_rs485_id: rs485Id,
+    detected_device_type: detectedType || ''
+  });
+}
+
 function logPayment_(payment) {
   ensureSheet_(SHEET_PAYMENTS, PAYMENT_HEADERS).appendRow([
     new Date(),
     payment.stripe_event_id || '',
+    payment.payment_link_id || '',
     payment.machine_id || '',
+    payment.amount || payment.amount_cents || 0,
+    payment.currency || 'eur',
+    payment.stripe_status || '',
+    payment.mqtt_publish_status || '',
+    payment.f4_ack_status || '',
+    payment.rs485_ack_status || '',
+    payment.final_status || payment.status || '',
+    payment.manual_review_required === true,
+    payment.notes || '',
+    // Compatibility fields
     payment.machine_name || '',
     payment.amount_cents || 0,
     payment.sessions || 0,
@@ -680,7 +1089,10 @@ function handleStripeWebhook_(stripeEvent) {
       amount_cents: amountCents,
       sessions: sessions,
       status: 'machine_not_found',
-      source: 'stripe'
+      source: 'stripe',
+      final_status: 'PAID_MACHINE_NOT_FOUND',
+      manual_review_required: true,
+      notes: 'Payment received but machine mapping not found'
     });
     return { ok: false, reason: 'machine_not_found' };
   }
@@ -694,7 +1106,10 @@ function handleStripeWebhook_(stripeEvent) {
       amount_cents: amountCents,
       sessions: sessions,
       status: 'blocked_unavailable',
-      source: 'stripe'
+      source: 'stripe',
+      final_status: 'PAID_BLOCKED_MACHINE_UNAVAILABLE',
+      manual_review_required: true,
+      notes: 'Payment arrived but machine was unavailable for remote credit'
     });
     return { ok: false, blocked: true, reason: 'machine_unavailable' };
   }
@@ -710,13 +1125,23 @@ function handleStripeWebhook_(stripeEvent) {
 
   logPayment_({
     stripe_event_id: stripeEvent.id || '',
+    payment_link_id: metadata.payment_link_id || session.payment_link || '',
     machine_id: machine.machine_id,
     machine_name: machine.machine_name,
+    amount: amountCents,
     amount_cents: amountCents,
+    currency: session.currency || 'eur',
+    stripe_status: session.payment_status || '',
+    mqtt_publish_status: commandResult.ok ? 'published' : 'publish_failed',
+    f4_ack_status: 'pending',
+    rs485_ack_status: 'pending',
     sessions: sessions,
     status: commandResult.ok ? 'published' : 'publish_failed',
     source: 'stripe',
-    command_id: commandResult.command && commandResult.command.id || ''
+    command_id: commandResult.command && commandResult.command.id || '',
+    final_status: commandResult.ok ? 'PAID_MQTT_PUBLISHED' : 'PAID_CREDIT_FAILED',
+    manual_review_required: !commandResult.ok,
+    notes: commandResult.ok ? 'Awaiting F4/RS485 ack chain' : 'MQTT publish failed, manual review required'
   });
 
   recomputeDailySummary();

@@ -6,11 +6,11 @@ This deployment keeps payment, remote control, and reporting in Google Apps Scri
 
 ## Deliverables
 
-- `firmware/Central_F4_MQTT_RS485_Master.ino`
+- `firmware/central/F4_Central_MQTT_RS485_Master.ino`
 - `firmware/shared/rs485_protocol.h`
 - `firmware/shared/rs485_protocol.cpp`
-- `firmware/caisse/CAISSE_V2_RS485.ino`
-- `firmware/aspi/ASPI_V2_RS485.ino`
+- `firmware/caisse/CAISSE_V2.ino`
+- `firmware/aspi/ASPI_V2.ino`
 - `apps_script/Code.gs`
 - `apps_script/Index.html`
 - `apps_script/appsscript.json`
@@ -61,7 +61,7 @@ The Apps Script project creates these tabs automatically:
 
 ## 5. Central KC868-F4 firmware
 
-- Open `firmware/Central_F4_MQTT_RS485_Master.ino` in Arduino IDE or PlatformIO.
+- Open `firmware/central/F4_Central_MQTT_RS485_Master.ino` in Arduino IDE or PlatformIO.
 - Install required libraries:
   - `PubSubClient`
   - `ArduinoJson`
@@ -106,7 +106,7 @@ The Apps Script project creates these tabs automatically:
 
 ## 6. CAISSE deployment
 
-- Start from `firmware/caisse/CAISSE_V2_RS485.ino`.
+- Start from `firmware/caisse/CAISSE_V2.ino`.
 - Keep the mature local runtime behavior intact:
   - pressure safety input
   - gel
@@ -124,7 +124,7 @@ The Apps Script project creates these tabs automatically:
 
 ## 7. ASPI deployment
 
-- Start from `firmware/aspi/ASPI_V2_RS485.ino`.
+- Start from `firmware/aspi/ASPI_V2.ino`.
 - Keep the mature local runtime behavior intact:
   - local coin pulse inputs
   - stop button

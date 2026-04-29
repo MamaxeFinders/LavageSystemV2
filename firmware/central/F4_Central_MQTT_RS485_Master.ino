@@ -14,7 +14,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-#include "shared/rs485_protocol.h"
+#include "../shared/rs485_protocol.h"
 
 using namespace RS485Proto;
 
@@ -30,6 +30,10 @@ using namespace RS485Proto;
 #define F4_OLED_WIDTH 128
 #define F4_OLED_HEIGHT 64
 #define F4_OLED_ADDRESS 0x3C
+#define F4_SWITCH_1_PIN 48
+#define F4_SWITCH_2_PIN 47
+#define F4_SWITCH_3_PIN 21
+#define F4_SWITCH_4_PIN 15
 #define F4_SD_SPI_SCK_PIN 42
 #define F4_SD_SPI_MISO_PIN 44
 #define F4_SD_SPI_MOSI_PIN 43
@@ -169,6 +173,10 @@ size_t pollIndex = 0;
 String rs485LineBuffer;
 bool sdAvailable = false;
 size_t lastOfflineQueueDepth = 0;
+bool modeMaintenance = false;
+bool modeLocalOnly = false;
+bool modeSettingsUnlock = false;
+bool modeServiceTest = false;
 
 WiFiClientSecure mqttTlsClient;
 PubSubClient mqttClient(mqttTlsClient);
@@ -179,6 +187,29 @@ void copyStringToBuffer(const String& value, char* buffer, size_t bufferLen) {
   }
   value.substring(0, bufferLen - 1).toCharArray(buffer, bufferLen);
   buffer[bufferLen - 1] = '\0';
+}
+
+bool isSwitchOn(uint8_t pin) {
+  return digitalRead(pin) == LOW;
+}
+
+void readLeverModes() {
+  modeMaintenance = isSwitchOn(F4_SWITCH_1_PIN);
+  modeLocalOnly = isSwitchOn(F4_SWITCH_2_PIN);
+  modeSettingsUnlock = isSwitchOn(F4_SWITCH_3_PIN);
+  modeServiceTest = isSwitchOn(F4_SWITCH_4_PIN);
+}
+
+bool isOperationalRemoteCommand(const String& commandType) {
+  return commandType == "credit" ||
+    commandType == "enable" ||
+    commandType == "disable" ||
+    commandType == "reset_fault" ||
+    commandType == "assign_device" ||
+    commandType == "set_config" ||
+    commandType == "test_output" ||
+    commandType == "service_test" ||
+    commandType == "legacy_pulse";
 }
 
 uint8_t clampCount(uint8_t value, uint8_t maxValue) {
@@ -671,6 +702,10 @@ void refreshOledStatus() {
   oled.println(configDeviceId.substring(0, 21));
   oled.println(String("NET:") + (ethConnected ? "UP " : "DOWN ") + localIpString());
   oled.println(String("MQTT:") + (mqttClient.connected() ? "UP" : "DOWN") + " Q:" + lastOfflineQueueDepth);
+  oled.println(String("M:") + (modeMaintenance ? "1" : "0") +
+               " L:" + (modeLocalOnly ? "1" : "0") +
+               " U:" + (modeSettingsUnlock ? "1" : "0") +
+               " T:" + (modeServiceTest ? "1" : "0"));
 
   size_t onlineCount = 0;
   size_t safeCount = 0;
@@ -687,7 +722,7 @@ void refreshOledStatus() {
   }
 
   oled.println(String("ONLINE ") + onlineCount + "/" + (configCaisseCount + configAspiCount + configAirCount));
-  oled.println(String("SAFE:") + safeCount + " SD:" + (sdAvailable ? "OK" : "OFF"));
+  oled.println(String("SAFE:") + safeCount + " SD:" + (sdAvailable ? "OK" : "WARN"));
 
   for (size_t index = 0; index < MACHINE_COUNT; ++index) {
     if (!machines[index].active) {
@@ -888,6 +923,10 @@ void publishStatusHeartbeat() {
   document["site_id"] = configSiteId;
   document["eth_connected"] = ethConnected;
   document["mqtt_connected"] = mqttClient.connected();
+  document["maintenance_mode"] = modeMaintenance;
+  document["local_only_mode"] = modeLocalOnly;
+  document["settings_unlock"] = modeSettingsUnlock;
+  document["service_test_mode"] = modeServiceTest;
   document["uptime_ms"] = millis() - bootMs;
   JsonArray machinesArray = document.createNestedArray("machines");
   for (size_t index = 0; index < MACHINE_COUNT; ++index) {
@@ -918,6 +957,10 @@ void pushSnapshotToAppsScript() {
   document["site_id"] = configSiteId;
   document["eth_connected"] = ethConnected;
   document["mqtt_connected"] = mqttClient.connected();
+  document["maintenance_mode"] = modeMaintenance;
+  document["local_only_mode"] = modeLocalOnly;
+  document["settings_unlock"] = modeSettingsUnlock;
+  document["service_test_mode"] = modeServiceTest;
   document["timestamp_ms"] = millis();
 
   JsonArray machinesArray = document.createNestedArray("machines");
@@ -1116,6 +1159,30 @@ void translateBridgeCommand(const JsonDocument& document) {
     return;
   }
 
+  if ((type == "set_comm_mode" || type == "assign_device" || type == "set_config") && !modeSettingsUnlock) {
+    publishBridgeAck(commandId, machine->name, type, "FAULT", "rejected", "SETTINGS UNLOCK switch is OFF");
+    postCommandAckToAppsScript(commandId, machine->name, type, source, "failed", "FAULT", "SETTINGS UNLOCK switch is OFF");
+    return;
+  }
+
+  if ((type == "test_output" || type == "service_test") && !modeServiceTest) {
+    publishBridgeAck(commandId, machine->name, type, "FAULT", "rejected", "SERVICE TEST switch is OFF");
+    postCommandAckToAppsScript(commandId, machine->name, type, source, "failed", "FAULT", "SERVICE TEST switch is OFF");
+    return;
+  }
+
+  if (isOperationalRemoteCommand(type) && modeMaintenance && type != "refresh_status") {
+    publishBridgeAck(commandId, machine->name, type, "FAULT", "rejected", "MAINTENANCE mode blocks remote operation commands");
+    postCommandAckToAppsScript(commandId, machine->name, type, source, "failed", "FAULT", "MAINTENANCE mode blocks remote operation commands");
+    return;
+  }
+
+  if (isOperationalRemoteCommand(type) && modeLocalOnly && type != "refresh_status") {
+    publishBridgeAck(commandId, machine->name, type, "FAULT", "rejected", "LOCAL ONLY mode blocks remote operation commands");
+    postCommandAckToAppsScript(commandId, machine->name, type, source, "failed", "FAULT", "LOCAL ONLY mode blocks remote operation commands");
+    return;
+  }
+
   if (type == "set_comm_mode") {
     String requestedMode = "NORMAL";
     if (!document["comm_mode"].isNull()) {
@@ -1167,6 +1234,17 @@ void translateBridgeCommand(const JsonDocument& document) {
     sendRs485(machine->nodeId, "TEST_OUTPUT", String(outputIndex), String(outputState), commandId, source, type, String(outputIndex));
     publishBridgeAck(commandId, machine->name, type, "RECEIVED", "accepted", "TEST_OUTPUT queued to RS485");
     postCommandAckToAppsScript(commandId, machine->name, type, source, "queued", "RECEIVED", "TEST_OUTPUT queued to RS485");
+  } else if (type == "assign_device") {
+    const int newNodeId = document["assigned_rs485_id"] | document["new_rs485_id"] | machine->nodeId;
+    const String boardUid = document["board_uid"] | "";
+    const String machineName = document["assigned_machine_id"] | machine->name;
+    String payload;
+    payload = setPayloadValue(payload, "uid", boardUid);
+    payload = setPayloadValue(payload, "machine", machineName);
+    payload = setPayloadValue(payload, "type", document["detected_device_type"] | machineTypeName(machine->type));
+    sendRs485(machine->nodeId, "ASSIGN_DEVICE", String(newNodeId), payload, commandId, source, type, machineName);
+    publishBridgeAck(commandId, machine->name, type, "RECEIVED", "accepted", "ASSIGN_DEVICE queued to RS485");
+    postCommandAckToAppsScript(commandId, machine->name, type, source, "queued", "RECEIVED", "ASSIGN_DEVICE queued to RS485");
   } else if (type == "legacy_pulse") {
     const bool maintenanceMode = document["maintenance_mode"] | false;
     const uint8_t relayIndex = static_cast<uint8_t>(document["relay"] | 0);
@@ -1240,6 +1318,11 @@ void setup() {
   Serial.begin(115200);
   bootMs = millis();
   pinMode(CONFIG_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(F4_SWITCH_1_PIN, INPUT_PULLUP);
+  pinMode(F4_SWITCH_2_PIN, INPUT_PULLUP);
+  pinMode(F4_SWITCH_3_PIN, INPUT_PULLUP);
+  pinMode(F4_SWITCH_4_PIN, INPUT_PULLUP);
+  readLeverModes();
   loadRuntimeConfig();
 
   Wire.begin(F4_I2C_SDA_PIN, F4_I2C_SCL_PIN, 400000U);
@@ -1270,6 +1353,7 @@ void setup() {
 
 void loop() {
   const unsigned long now = millis();
+  readLeverModes();
 
   const wl_status_t wifiStatus = WiFi.status();
   const IPAddress localIp = WiFi.localIP();
@@ -1285,7 +1369,8 @@ void loop() {
     }
   }
   if (!ethConnected && ethDownSinceMs != 0 && now - ethDownSinceMs > ETH_DOWN_RESTART_MS) {
-    restartBoard("Cloud uplink down too long");
+    Serial.println("WARN: Cloud uplink down for extended period, local RS485 supervision continues");
+    ethDownSinceMs = now;
   }
 
   if (ethConnected) {
@@ -1295,7 +1380,8 @@ void loop() {
         connectMqtt();
       }
       if (mqttDownSinceMs != 0 && now - mqttDownSinceMs > MQTT_DOWN_RESTART_MS) {
-        restartBoard("MQTT down too long");
+        Serial.println("WARN: MQTT down for extended period, local RS485 supervision continues");
+        mqttDownSinceMs = now;
       }
     } else {
       mqttDownSinceMs = 0;

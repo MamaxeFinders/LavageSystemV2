@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Carwash Setup</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 12px; }
+    h2 { margin: 0 0 8px; }
+    .field { margin-bottom: 10px; }
+    label { display: block; font-size: 12px; color: #444; margin-bottom: 4px; }
+    input { width: 100%; box-sizing: border-box; padding: 8px; }
+    button { margin: 4px 4px 4px 0; padding: 8px 10px; }
+    .status { background: #f4f4f4; border: 1px solid #ddd; padding: 8px; font-size: 12px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h2>Carwash Setup</h2>
+  <div class="field"><label for="emqxApiBase">EMQX API base URL</label><input id="emqxApiBase" placeholder="https://.../api/v5" /></div>
+  <div class="field"><label for="emqxAppId">EMQX App ID</label><input id="emqxAppId" placeholder="app-id" /></div>
+  <div class="field"><label for="emqxAppSecret">EMQX App Secret</label><input id="emqxAppSecret" type="password" placeholder="app-secret" /></div>
+  <div class="field"><label for="mqttTopicCmd">MQTT command topic</label><input id="mqttTopicCmd" placeholder="carwash/site1/bridge/cmd" /></div>
+  <div class="field"><label for="mqttTopicStatus">MQTT status topic</label><input id="mqttTopicStatus" placeholder="carwash/site1/bridge/status" /></div>
+  <div class="field"><label for="mqttTopicAck">MQTT ack topic</label><input id="mqttTopicAck" placeholder="carwash/site1/bridge/ack" /></div>
+  <div class="field"><label for="stripeWebhookSecret">Stripe webhook secret</label><input id="stripeWebhookSecret" type="password" placeholder="whsec_..." /></div>
+  <div class="field"><label for="stripeSecretKey">Stripe secret key</label><input id="stripeSecretKey" type="password" placeholder="sk_live_..." /></div>
+  <div class="field"><label for="webAppUrl">Google Web App URL</label><input id="webAppUrl" placeholder="https://script.google.com/..." /></div>
+  <div class="field"><label for="adminAllowlist">Admin email allowlist (comma separated)</label><input id="adminAllowlist" placeholder="admin@example.com" /></div>
+
+  <button onclick="saveConfig()">Save setup</button>
+  <button onclick="runTest('emqx')">Test EMQX publish</button>
+  <button onclick="runTest('stripe')">Test Stripe connection</button>
+  <button onclick="runTest('sheet')">Test Google Sheet write</button>
+  <button onclick="runTest('system')">Test system configuration</button>
+
+  <h3>Status</h3>
+  <div id="status" class="status">Loading...</div>
+
+  <script>
+    function setStatus(obj) {
+      document.getElementById('status').textContent = JSON.stringify(obj, null, 2);
+    }
+
+    function loadStatus() {
+      google.script.run.withSuccessHandler(setStatus).getSetupConfigStatus();
+    }
+
+    function saveConfig() {
+      const payload = {
+        emqxApiBase: document.getElementById('emqxApiBase').value,
+        emqxAppId: document.getElementById('emqxAppId').value,
+        emqxAppSecret: document.getElementById('emqxAppSecret').value,
+        mqttTopicCmd: document.getElementById('mqttTopicCmd').value,
+        mqttTopicStatus: document.getElementById('mqttTopicStatus').value,
+        mqttTopicAck: document.getElementById('mqttTopicAck').value,
+        stripeWebhookSecret: document.getElementById('stripeWebhookSecret').value,
+        stripeSecretKey: document.getElementById('stripeSecretKey').value,
+        webAppUrl: document.getElementById('webAppUrl').value,
+        adminAllowlist: document.getElementById('adminAllowlist').value
+      };
+      google.script.run.withSuccessHandler(setStatus).saveSetupConfig(payload);
+    }
+
+    function runTest(type) {
+      if (type === 'emqx') {
+        google.script.run.withSuccessHandler(setStatus).testEmqxPublish();
+      } else if (type === 'stripe') {
+        google.script.run.withSuccessHandler(setStatus).testStripeConnection();
+      } else if (type === 'sheet') {
+        google.script.run.withSuccessHandler(setStatus).testSheetWrite();
+      } else {
+        google.script.run.withSuccessHandler(setStatus).testSystemConfiguration();
+      }
+    }
+
+    loadStatus();
+  </script>
+</body>
+</html>

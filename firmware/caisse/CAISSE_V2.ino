@@ -26,10 +26,16 @@ const char* DEVICE_TYPE = "CAISSE";
 const char* PREF_NAMESPACE = "caisse-v2";
 const char* PREF_DEVICE_ID = "device_id";
 const char* PREF_DEVICE_TYPE = "device_type";
+const char* PREF_BOARD_UID = "board_uid";
+const char* PREF_MACHINE_NAME = "machine_name";
+const unsigned long UNASSIGN_HOLD_MS = 5000;
 
-int deviceId = 1;
+int deviceId = 0;
 String deviceName = "CAISSE";
 String rxLineBuffer;
+String boardUid;
+String assignedMachineId = "";
+unsigned long unassignHoldStartMs = 0;
 
 unsigned int ALARMcount = 0;
 const unsigned int ALARMcountMAX = 3;
@@ -111,7 +117,22 @@ void saveDeviceId(int newDeviceId) {
   preferences.begin(PREF_NAMESPACE, false);
   preferences.putInt(PREF_DEVICE_ID, newDeviceId);
   preferences.putString(PREF_DEVICE_TYPE, DEVICE_TYPE);
+  preferences.putString(PREF_BOARD_UID, boardUid);
+  preferences.putString(PREF_MACHINE_NAME, assignedMachineId);
   preferences.end();
+}
+
+String buildBoardUid() {
+  uint64_t chip = ESP.getEfuseMac();
+  char buffer[22];
+  snprintf(buffer, sizeof(buffer), "CAISSE-%04X%08X", static_cast<uint16_t>(chip >> 32), static_cast<uint32_t>(chip));
+  return String(buffer);
+}
+
+void clearAssignment() {
+  deviceId = 0;
+  assignedMachineId = "";
+  saveDeviceId(deviceId);
 }
 
 String centsToEuroText(long centsRounded) {
@@ -199,6 +220,9 @@ String buildStatusPayload(const char* reason) {
   String payload;
   payload = setPayloadValue(payload, "type", DEVICE_TYPE);
   payload = setPayloadValue(payload, "id", String(deviceId));
+  payload = setPayloadValue(payload, "board_uid", boardUid);
+  payload = setPayloadValue(payload, "machine", assignedMachineId);
+  payload = setPayloadValue(payload, "assign", deviceId > 0 ? "ASSIGNED" : "UNASSIGNED");
   payload = setPayloadValue(payload, "credit", String(roundedCreditCents()));
   payload = setPayloadValue(payload, "prog", String(selectedProgram));
   payload = setPayloadValue(payload, "run", boolAsString(programStarted));
@@ -264,6 +288,28 @@ void serviceRemote() {
 
   if (frame.command == "GET_STATUS") {
     sendStatus(frame.seq, "polled");
+    return;
+  }
+
+  if (frame.command == "ASSIGN_DEVICE") {
+    String targetUid;
+    payloadValue(frame.arg2, "uid", targetUid);
+    if (targetUid.length() == 0 || targetUid == boardUid) {
+      int newId = frame.arg1.toInt();
+      String machineName;
+      payloadValue(frame.arg2, "machine", machineName);
+      if (newId >= 1 && newId <= 4) {
+        deviceId = newId;
+        assignedMachineId = machineName.length() > 0 ? machineName : String("CAISSE_") + newId;
+        saveDeviceId(deviceId);
+        sendAck(frame.seq, "APPLIED", String("assigned=") + assignedMachineId);
+        sendStatus(frame.seq, "assigned");
+      } else {
+        sendFault(frame.seq, "BAD_ASSIGN", "Assigned rs485 id out of range");
+      }
+    } else {
+      sendFault(frame.seq, "UID_MISMATCH", "Assignment board UID mismatch");
+    }
     return;
   }
 
@@ -384,8 +430,12 @@ void setup() {
   WiFi.mode(WIFI_STA);
   pinMode(0, INPUT_PULLUP);
 
+  boardUid = buildBoardUid();
+
   preferences.begin(PREF_NAMESPACE, true);
-  deviceId = preferences.getInt(PREF_DEVICE_ID, 1);
+  deviceId = preferences.getInt(PREF_DEVICE_ID, 0);
+  boardUid = preferences.getString(PREF_BOARD_UID, boardUid);
+  assignedMachineId = preferences.getString(PREF_MACHINE_NAME, assignedMachineId);
   preferences.end();
   saveDeviceId(deviceId);
 
@@ -413,7 +463,7 @@ void setup() {
   activateRelays(allOFF_Output, -1);
   cooperativeDelay(200);
   activateRelays(Standby_Output, -1);
-  displayMessage("READY           ", deviceName + " " + String(deviceId), true);
+  displayMessage("READY           ", deviceId > 0 ? assignedMachineId : "UNASSIGNED", true);
   sendStatus(nextLocalSeq(), "boot");
 }
 
@@ -421,7 +471,26 @@ void loop() {
   serviceRemote();
 
   uint8_t inputStatus = pcf8574_in2.digitalReadAll();
+  uint8_t actionInput = pcf8574_in1.digitalReadAll();
   int inputIndex = getInputIndexINPUTSTATUS(inputStatus);
+  int buttonIndex = getInputIndexBUTTON(actionInput);
+
+  const bool stopPressedCombo = buttonIndex > 0 && InputButton[buttonIndex - 1] == "STOP";
+  const bool button1PressedCombo = (actionInput & 0x01) == 0;
+  if (stopPressedCombo && button1PressedCombo) {
+    if (unassignHoldStartMs == 0) {
+      unassignHoldStartMs = millis();
+    }
+    if (millis() - unassignHoldStartMs >= UNASSIGN_HOLD_MS) {
+      clearAssignment();
+      displayMessage("ASSIGNMENT CLR  ", "UNASSIGNED      ", true);
+      sendStatus(nextLocalSeq(), "assignment_cleared");
+      cooperativeDelay(800);
+      unassignHoldStartMs = 0;
+    }
+  } else {
+    unassignHoldStartMs = 0;
+  }
 
   if (!digitalRead(0)) {
     displayMessage("TEMP: " + String(dht.readTemperature(), 1), "HUM: " + String(dht.readHumidity(), 1), true);
@@ -471,8 +540,6 @@ void loop() {
   }
 
   if (creditDeciCents > 0 && machineEnabled && !machineFault) {
-    uint8_t actionInput = pcf8574_in1.digitalReadAll();
-    int buttonIndex = getInputIndexBUTTON(actionInput);
     if (buttonIndex > 0 && InputButton[buttonIndex - 1] == "STOP") {
       selectedProgram = buttonIndex;
       programStarted = false;
