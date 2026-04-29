@@ -31,10 +31,10 @@
 
 ## 6. Google account bootstrap (info@efinders.fr)
 1. Open the Apps Script project while logged in as `info@efinders.fr`.
-2. Ensure a Drive folder named `Lavage` exists.
+2. Use Drive folder `Lavage` with ID `1nRXyDgha3opObmQV1VdYSwIO06ucAbL8`.
 3. In Apps Script, run function `bootstrapLavageSheetForEfinders` once.
 4. This will:
 	- Create or link spreadsheet `Clean Wash V2 - Operations`.
-	- Move it into Drive folder `Lavage`.
+	- Move it into the Drive folder above.
 	- Save `SPREADSHEET_ID` in Script Properties.
 	- Create all required tabs/headers automatically.

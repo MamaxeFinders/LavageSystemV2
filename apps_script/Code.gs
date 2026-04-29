@@ -130,6 +130,7 @@ const FAULT_HEADERS = ['timestamp', 'machine_id', 'severity', 'event_type', 'mes
 const DAILY_HEADERS = ['date', 'machine_id', 'machine_name', 'revenue_cents', 'session_count'];
 const SYSTEM_CONFIG_HEADERS = ['key', 'value', 'updated_at'];
 const SETUP_LOG_HEADERS = ['timestamp', 'action', 'result', 'details'];
+const EFINDERS_LAVAGE_FOLDER_ID = '1nRXyDgha3opObmQV1VdYSwIO06ucAbL8';
 
 function normalizeMachinePropertyKey_(value) {
   return String(value || '')
@@ -249,22 +250,35 @@ function onOpen() {
 }
 
 function bootstrapLavageSheetForEfinders() {
-  return bootstrapLavageSheet_('Lavage', 'Clean Wash V2 - Operations');
+  return bootstrapLavageSheet_('Lavage', 'Clean Wash V2 - Operations', EFINDERS_LAVAGE_FOLDER_ID);
 }
 
-function bootstrapLavageSheet_(folderName, spreadsheetName) {
+function bootstrapLavageSheet_(folderName, spreadsheetName, folderId) {
   const props = PropertiesService.getScriptProperties();
-  const folderIterator = DriveApp.getFoldersByName(folderName);
-  if (!folderIterator.hasNext()) {
+  let folder = null;
+  if (folderId) {
+    try {
+      folder = DriveApp.getFolderById(folderId);
+    } catch (error) {
+      folder = null;
+    }
+  }
+  if (!folder) {
+    const folderIterator = DriveApp.getFoldersByName(folderName);
+    if (folderIterator.hasNext()) {
+      folder = folderIterator.next();
+    }
+  }
+  if (!folder) {
     return {
       ok: false,
       error: 'folder_not_found',
       folder: folderName,
+      folderId: folderId || '',
       message: 'Google Drive folder not found: ' + folderName
     };
   }
 
-  const folder = folderIterator.next();
   const existingId = getRequiredProperty_('SPREADSHEET_ID', '');
   let spreadsheet = null;
   let created = false;
@@ -298,6 +312,7 @@ function bootstrapLavageSheet_(folderName, spreadsheetName) {
     ok: true,
     created: created,
     folder: folderName,
+    folderId: folder.getId(),
     spreadsheetId: spreadsheet.getId(),
     spreadsheetUrl: spreadsheet.getUrl(),
     message: created
