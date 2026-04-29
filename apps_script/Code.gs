@@ -911,15 +911,34 @@ function getDashboardData_() {
   const machines = sheetToObjects_(ensureSheet_(SHEET_MACHINES, MACHINE_HEADERS))
     .map(normalizeMachineRecord_)
     .filter(machine => machine.configured_active !== false);
+  const familyCounts = machines.reduce((acc, machine) => {
+    const type = String(machine.machine_type || machine.device_type || '').toUpperCase();
+    if (type.indexOf('CAISSE') !== -1) {
+      acc.CAISSE += 1;
+    } else if (type.indexOf('ASPI') !== -1) {
+      acc.ASPI += 1;
+    } else if (type.indexOf('AIR') !== -1) {
+      acc.AIR += 1;
+    }
+    return acc;
+  }, { CAISSE: 0, ASPI: 0, AIR: 0 });
+
   return {
     ok: true,
     machines: machines,
     assignments: sheetToObjects_(ensureSheet_(SHEET_ASSIGNMENTS, ASSIGNMENT_HEADERS), 100),
     events: sheetToObjects_(ensureSheet_(SHEET_EVENTS, EVENT_HEADERS), 50),
+    faults: sheetToObjects_(ensureSheet_(SHEET_FAULTS, FAULT_HEADERS), 200),
     commands: sheetToObjects_(ensureSheet_(SHEET_COMMANDS, COMMAND_HEADERS), 50),
     payments: sheetToObjects_(ensureSheet_(SHEET_PAYMENTS, PAYMENT_HEADERS), 50),
     dailySummary: sheetToObjects_(ensureSheet_(SHEET_DAILY, DAILY_HEADERS), 20),
-    setupLog: sheetToObjects_(ensureSheet_(SHEET_SETUP_LOG, SETUP_LOG_HEADERS), 50)
+    setupLog: sheetToObjects_(ensureSheet_(SHEET_SETUP_LOG, SETUP_LOG_HEADERS), 50),
+    setupStatus: setupStatus_(),
+    machineLimits: {
+      standard: { CAISSE: 4, ASPI: 2, AIR: 1 },
+      max: { CAISSE: 6, ASPI: 4, AIR: 2 },
+      current: familyCounts
+    }
   };
 }
 

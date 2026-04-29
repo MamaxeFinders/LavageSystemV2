@@ -349,6 +349,22 @@
       color: var(--warn);
     }
 
+    .mt-8 {
+      margin-top: 8px;
+    }
+
+    .mt-12 {
+      margin-top: 12px;
+    }
+
+    .mt-14 {
+      margin-top: 14px;
+    }
+
+    .mb-8 {
+      margin-bottom: 8px;
+    }
+
     @media (max-width: 900px) {
       .admin-grid,
       .history-grid {
@@ -358,6 +374,7 @@
   </style>
 </head>
 <body>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
     const BOOTSTRAP = <?!= JSON.stringify(bootstrap) ?>;
   </script>
@@ -380,25 +397,36 @@
     <section class="hero">
       <div>
         <div class="pill">Google Apps Script + Sheets + EMQX</div>
-        <h1>Clean Wash control deck.</h1>
+        <h1>Clean Wash admin cockpit.</h1>
       </div>
-      <p class="hero-subtitle">This dashboard only issues bridge commands. Credit still lands through RS485 on the local CAISSE and ASPI boards, so local autonomy stays intact if the bridge or internet disappears.</p>
+      <p class="hero-subtitle">Three modules: status & defects, transactions analytics, and credit/control operations.</p>
       <div class="hero-stats">
-        <div class="stat">
-          <div class="stat-label">Machines tracked</div>
-          <div id="statMachines" class="stat-value">0</div>
+        <div class="stat"><div class="stat-label">Machines tracked</div><div id="statMachines" class="stat-value">0</div></div>
+        <div class="stat"><div class="stat-label">Online now</div><div id="statOnline" class="stat-value">0</div></div>
+        <div class="stat"><div class="stat-label">Defective now</div><div id="statDefective" class="stat-value">0</div></div>
+        <div class="stat"><div class="stat-label">Last refresh</div><div id="statRefresh" class="stat-value stat-refresh">Waiting</div></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Module 1: Hardware & software status</h2>
+          <p class="muted">Live machine state, configuration completeness, and defect history per device.</p>
         </div>
-        <div class="stat">
-          <div class="stat-label">Online now</div>
-          <div id="statOnline" class="stat-value">0</div>
+        <button onclick="loadDashboard()">Refresh now</button>
+      </div>
+      <div id="setupStatusChips" class="machine-meta"></div>
+      <p id="machineLimitInfo" class="muted mt-8"></p>
+      <div id="machineGrid" class="machine-grid mt-12"></div>
+      <div class="history-grid mt-14">
+        <div>
+          <h3 class="mb-8">Defective devices now</h3>
+          <canvas id="defectNowChart" height="140"></canvas>
         </div>
-        <div class="stat">
-          <div class="stat-label">Healthy now</div>
-          <div id="statHealthy" class="stat-value">0</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">Last refresh</div>
-          <div id="statRefresh" class="stat-value stat-refresh">Waiting</div>
+        <div>
+          <h3 class="mb-8">Historical defects per device</h3>
+          <canvas id="defectHistoryChart" height="140"></canvas>
         </div>
       </div>
     </section>
@@ -406,76 +434,36 @@
     <section class="panel">
       <div class="panel-head">
         <div>
-          <h2>Machine health</h2>
-          <p class="muted">Polling every 8 seconds for live-ish status from the Sheets snapshot.</p>
-        </div>
-        <button onclick="loadDashboard()">Refresh now</button>
-      </div>
-      <div id="machineGrid" class="machine-grid"></div>
-    </section>
-
-    <section class="admin-grid">
-      <div class="panel">
-        <div class="panel-head">
-          <div>
-            <h2>Admin actions</h2>
-            <p class="muted">Commands publish to EMQX, then the F4 bridge translates them to RS485.</p>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="field">
-            <label for="machineSelect">Machine</label>
-            <select id="machineSelect"></select>
-          </div>
-          <div class="field">
-            <label for="amountCents">Amount cents</label>
-            <input id="amountCents" type="number" min="0" value="300">
-          </div>
-          <div class="field">
-            <label for="sessions">Sessions</label>
-            <input id="sessions" type="number" min="1" max="10" value="1">
-          </div>
-        </div>
-        <div class="form-row admin-actions-row">
-          <button onclick="sendCredit()">Add credit</button>
-          <button class="warn" onclick="startMaintenanceSelectedDevice()">Maintenance ON (Disable)</button>
-          <button class="ok" onclick="endMaintenanceSelectedDevice()">Maintenance OFF (Re-enable)</button>
-          <button class="secondary" onclick="setSelectedCommMode('NORMAL')">Normal mode</button>
-          <button class="secondary" onclick="setSelectedCommMode('SAFE')">Safe mode</button>
-          <button class="secondary" onclick="sendSimple('reset_fault')">Reset fault</button>
-          <button class="secondary" onclick="refreshSelectedMachine()">Refresh status</button>
+          <h2>Module 2: Transactions dashboard</h2>
+          <p class="muted">Latest transactions with period selection and yearly turnover by device.</p>
         </div>
       </div>
-
-      <div class="panel">
-        <div class="panel-head">
-          <div>
-            <h2>Command trace</h2>
-            <p class="muted">Latest publish result from Apps Script.</p>
-          </div>
+      <div class="form-row">
+        <div class="field">
+          <label for="periodMode">Histogram period</label>
+          <select id="periodMode" onchange="renderTransactionCharts()">
+            <option value="day">Per day</option>
+            <option value="week">Per week</option>
+            <option value="month">Per month</option>
+          </select>
         </div>
-        <pre id="commandOutput">No command sent yet.</pre>
+        <div class="field">
+          <label for="periodLength">Number of buckets</label>
+          <input id="periodLength" type="number" min="3" max="24" value="12" onchange="renderTransactionCharts()">
+        </div>
       </div>
-    </section>
-
-    <section class="history-grid">
-      <div class="panel">
-        <div class="panel-head">
-          <div>
-            <h2>Recent commands</h2>
-            <p class="muted">Staged acknowledgements move through RECEIVED, APPLIED, RUNNING, COMPLETED or FAULT.</p>
-          </div>
+      <div class="history-grid mt-14">
+        <div>
+          <h3 class="mb-8">Revenue histogram</h3>
+          <canvas id="txnHistogramChart" height="150"></canvas>
         </div>
-        <div id="commandsTable"></div>
+        <div>
+          <h3 class="mb-8">Yearly turnover per device</h3>
+          <canvas id="yearlyTurnoverChart" height="150"></canvas>
+        </div>
       </div>
-
-      <div class="panel">
-        <div class="panel-head">
-          <div>
-            <h2>Recent payments</h2>
-            <p class="muted">Stripe-triggered credits are only published after health gating.</p>
-          </div>
-        </div>
+      <div class="mt-14">
+        <h3 class="mb-8">Latest transactions</h3>
         <div id="paymentsTable"></div>
       </div>
     </section>
@@ -483,17 +471,55 @@
     <section class="panel">
       <div class="panel-head">
         <div>
-          <h2>Provisioning queue</h2>
-          <p class="muted">Unassigned board UIDs and assignment progress.</p>
+          <h2>Module 3: Credit and device control</h2>
+          <p class="muted">Default credit is 3.00 EUR (300 cents). Acknowledgement status is shown after command publication.</p>
         </div>
       </div>
-      <div id="assignmentsTable"></div>
+      <div class="form-row">
+        <div class="field">
+          <label for="machineSelect">Machine</label>
+          <select id="machineSelect"></select>
+        </div>
+        <div class="field">
+          <label for="amountEuro">Credit (EUR)</label>
+          <input id="amountEuro" type="number" min="0.5" step="0.5" value="3">
+        </div>
+        <div class="field">
+          <label for="sessions">Sessions</label>
+          <input id="sessions" type="number" min="1" max="10" value="1">
+        </div>
+      </div>
+      <div class="form-row admin-actions-row">
+        <button onclick="sendCredit()">Add credit</button>
+        <button class="secondary" onclick="refreshSelectedMachine()">Refresh status</button>
+        <button class="secondary" onclick="sendSimple('reset_fault')">Reset fault</button>
+        <button class="warn" onclick="startMaintenanceSelectedDevice()">Maintenance ON</button>
+        <button class="ok" onclick="endMaintenanceSelectedDevice()">Maintenance OFF</button>
+      </div>
+      <div class="history-grid mt-14">
+        <div>
+          <h3 class="mb-8">Enable/disable switches</h3>
+          <div id="deviceSwitchList"></div>
+        </div>
+        <div>
+          <h3 class="mb-8">Acknowledgement and command trace</h3>
+          <pre id="commandOutput">No command sent yet.</pre>
+        </div>
+      </div>
+      <div class="mt-14">
+        <h3 class="mb-8">Recent command acknowledgements</h3>
+        <div id="commandsTable"></div>
+      </div>
     </section>
   </div>
 
   <script>
     let pollTimer = null;
     let lastDashboard = null;
+    let defectNowChart = null;
+    let defectHistoryChart = null;
+    let txnHistogramChart = null;
+    let yearlyTurnoverChart = null;
 
     function machineClass(machine) {
       if (String(machine.comm_mode || 'NORMAL').toUpperCase() === 'SAFE') return 'disabled';
@@ -539,6 +565,203 @@
 
     function formatBool(value) {
       return truthy(value) ? 'yes' : 'no';
+    }
+
+    function safeNum(value) {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function machineDisplayName(machine) {
+      return machine.machine_name || ('MACHINE_' + machine.machine_id);
+    }
+
+    function destroyChart(chart) {
+      if (chart) {
+        chart.destroy();
+      }
+    }
+
+    function renderSetupStatus(status) {
+      const target = document.getElementById('setupStatusChips');
+      const entries = Object.entries(status || {});
+      if (!entries.length) {
+        target.innerHTML = '<span class="muted">No setup status available.</span>';
+        return;
+      }
+      target.innerHTML = entries.map(([key, value]) => {
+        const ok = value === 'configured';
+        return `<span class="chip" style="background:${ok ? 'rgba(45,122,79,0.16)' : 'rgba(183,75,47,0.16)'};">${key}: ${ok ? 'OK' : 'MISSING'}</span>`;
+      }).join('');
+    }
+
+    function renderMachineLimits(info) {
+      if (!info) {
+        return;
+      }
+      const max = info.max || {};
+      const current = info.current || {};
+      const standard = info.standard || {};
+      const exceeded = (safeNum(current.CAISSE) > safeNum(max.CAISSE)) ||
+        (safeNum(current.ASPI) > safeNum(max.ASPI)) ||
+        (safeNum(current.AIR) > safeNum(max.AIR));
+      const text = `Standard setup ${standard.CAISSE || 4} CAISSE / ${standard.ASPI || 2} ASPI / ${standard.AIR || 1} AIR. ` +
+        `Max allowed ${max.CAISSE || 6} CAISSE / ${max.ASPI || 4} ASPI / ${max.AIR || 2} AIR. ` +
+        `Current ${current.CAISSE || 0} / ${current.ASPI || 0} / ${current.AIR || 0}.` +
+        (exceeded ? ' WARNING: Current setup exceeds maximum allowed counts.' : '');
+      const el = document.getElementById('machineLimitInfo');
+      el.textContent = text;
+      el.style.color = exceeded ? '#b74b2f' : '';
+    }
+
+    function renderDefectCharts(machines, faults, events) {
+      const machineNames = machines.map(machine => machineDisplayName(machine));
+      const currentDefects = machines.map(machine => {
+        const defective = !truthy(machine.online) || !truthy(machine.healthy) || !truthy(machine.enabled) || !!machine.fault_code;
+        return defective ? 1 : 0;
+      });
+
+      const historicalByMachine = {};
+      machineNames.forEach(name => historicalByMachine[name] = 0);
+
+      (faults || []).forEach(row => {
+        const name = String(row.machine_name || row.machine_id || '').trim();
+        if (name) {
+          historicalByMachine[name] = (historicalByMachine[name] || 0) + 1;
+        }
+      });
+
+      (events || []).forEach(row => {
+        const type = String(row.event_type || '').toUpperCase();
+        if (type.indexOf('FAULT') === -1) {
+          return;
+        }
+        const name = String(row.machine_name || row.machine_id || '').trim();
+        if (name) {
+          historicalByMachine[name] = (historicalByMachine[name] || 0) + 1;
+        }
+      });
+
+      destroyChart(defectNowChart);
+      defectNowChart = new Chart(document.getElementById('defectNowChart'), {
+        type: 'bar',
+        data: {
+          labels: machineNames,
+          datasets: [{
+            label: 'Defect now',
+            data: currentDefects,
+            backgroundColor: '#b74b2f'
+          }]
+        },
+        options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+      });
+
+      destroyChart(defectHistoryChart);
+      defectHistoryChart = new Chart(document.getElementById('defectHistoryChart'), {
+        type: 'bar',
+        data: {
+          labels: machineNames,
+          datasets: [{
+            label: 'Historical defects',
+            data: machineNames.map(name => historicalByMachine[name] || 0),
+            backgroundColor: '#12736d'
+          }]
+        },
+        options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+      });
+    }
+
+    function formatBucketLabel(dateObj, mode) {
+      if (mode === 'month') {
+        return dateObj.toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris', month: '2-digit', year: 'numeric' });
+      }
+      if (mode === 'week') {
+        return 'W' + weekNumber(dateObj) + ' ' + dateObj.getFullYear();
+      }
+      return dateObj.toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' });
+    }
+
+    function weekNumber(d) {
+      const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+      const dayNum = date.getUTCDay() || 7;
+      date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+      const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+      return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+    }
+
+    function renderTransactionCharts() {
+      if (!lastDashboard) {
+        return;
+      }
+      const mode = document.getElementById('periodMode').value;
+      const length = Math.max(3, Math.min(24, safeNum(document.getElementById('periodLength').value) || 12));
+      const payments = (lastDashboard.payments || []).slice().reverse();
+
+      const histogramMap = {};
+      payments.forEach(row => {
+        if (String(row.status || '').toLowerCase() !== 'published') {
+          return;
+        }
+        const dt = new Date(row.timestamp);
+        if (Number.isNaN(dt.getTime())) {
+          return;
+        }
+        const key = formatBucketLabel(dt, mode);
+        histogramMap[key] = (histogramMap[key] || 0) + safeNum(row.amount_cents || row.amount || 0) / 100;
+      });
+      const labels = Object.keys(histogramMap).slice(-length);
+      const values = labels.map(k => histogramMap[k]);
+
+      destroyChart(txnHistogramChart);
+      txnHistogramChart = new Chart(document.getElementById('txnHistogramChart'), {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{ label: 'Revenue (EUR)', data: values, backgroundColor: '#0b5d58' }]
+        },
+        options: { responsive: true, plugins: { legend: { display: false } } }
+      });
+
+      const currentYear = new Date().getFullYear();
+      const byDevice = {};
+      payments.forEach(row => {
+        const dt = new Date(row.timestamp);
+        if (Number.isNaN(dt.getTime()) || dt.getFullYear() !== currentYear) {
+          return;
+        }
+        if (String(row.status || '').toLowerCase() !== 'published') {
+          return;
+        }
+        const name = String(row.machine_name || row.machine_id || 'Unknown');
+        byDevice[name] = (byDevice[name] || 0) + safeNum(row.amount_cents || row.amount || 0) / 100;
+      });
+      const deviceLabels = Object.keys(byDevice);
+      const deviceValues = deviceLabels.map(k => byDevice[k]);
+
+      destroyChart(yearlyTurnoverChart);
+      yearlyTurnoverChart = new Chart(document.getElementById('yearlyTurnoverChart'), {
+        type: 'doughnut',
+        data: {
+          labels: deviceLabels,
+          datasets: [{ data: deviceValues, backgroundColor: ['#12736d', '#b74b2f', '#2d7a4f', '#d17b18', '#3a6ea5', '#6c5b7b'] }]
+        },
+        options: { responsive: true }
+      });
+    }
+
+    function renderDeviceSwitches(machines) {
+      const root = document.getElementById('deviceSwitchList');
+      if (!machines.length) {
+        root.innerHTML = '<p class="muted">No machine rows available.</p>';
+        return;
+      }
+      root.innerHTML = machines.map(machine => {
+        const checked = truthy(machine.enabled) ? 'checked' : '';
+        return `<label style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;margin-bottom:8px;background:rgba(255,255,255,0.6);border-radius:12px;">
+          <span>${machineDisplayName(machine)} (${machine.machine_type || 'UNKNOWN'})</span>
+          <input type="checkbox" ${checked} onchange="toggleDeviceState('${machine.machine_id}', this.checked)">
+        </label>`;
+      }).join('');
     }
 
     function renderMachines(machines) {
@@ -589,8 +812,10 @@
 
       document.getElementById('statMachines').textContent = String(machines.length);
       document.getElementById('statOnline').textContent = String(machines.filter(machine => truthy(machine.online)).length);
-      document.getElementById('statHealthy').textContent = String(machines.filter(machine => truthy(machine.online) && truthy(machine.healthy)).length);
+      document.getElementById('statDefective').textContent = String(machines.filter(machine => !truthy(machine.online) || !truthy(machine.healthy) || !truthy(machine.enabled) || !!machine.fault_code).length);
       document.getElementById('statRefresh').textContent = new Date().toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris' });
+
+      renderDeviceSwitches(machines);
     }
 
     function renderTable(targetId, rows) {
@@ -616,9 +841,12 @@
       google.script.run.withSuccessHandler(data => {
         lastDashboard = data;
         renderMachines(data.machines || []);
+        renderSetupStatus(data.setupStatus || {});
+        renderMachineLimits(data.machineLimits || null);
+        renderDefectCharts(data.machines || [], data.faults || [], data.events || []);
+        renderTransactionCharts();
         renderTable('commandsTable', data.commands || []);
         renderTable('paymentsTable', data.payments || []);
-        renderTable('assignmentsTable', data.assignments || []);
       }).getDashboardData_();
     }
 
@@ -629,9 +857,16 @@
 
     function sendCredit() {
       const machine = document.getElementById('machineSelect').value;
-      const amount = document.getElementById('amountCents').value;
+      const amountEuro = safeNum(document.getElementById('amountEuro').value);
+      const amount = Math.round(amountEuro * 100);
       const sessions = document.getElementById('sessions').value;
       google.script.run.withSuccessHandler(showCommandResult).sendAdminCredit(machine, amount, sessions);
+    }
+
+    function toggleDeviceState(machineId, enabled) {
+      const action = enabled ? 'enableDeviceFromWebapp' : 'disableDeviceFromWebapp';
+      const note = enabled ? 'Enabled from admin switch' : 'Disabled from admin switch';
+      google.script.run.withSuccessHandler(showCommandResult)[action](machineId, note, 'admin_switch');
     }
 
     function sendSimple(commandType) {
