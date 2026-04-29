@@ -28,3 +28,13 @@
 - Local machine logic always remains primary.
 - Cloud failures should not stop CAISSE/ASPI local usage.
 - SD card support is optional on central; missing SD is warning only.
+
+## 6. Google account bootstrap (info@efinders.fr)
+1. Open the Apps Script project while logged in as `info@efinders.fr`.
+2. Ensure a Drive folder named `Lavage` exists.
+3. In Apps Script, run function `bootstrapLavageSheetForEfinders` once.
+4. This will:
+	- Create or link spreadsheet `Clean Wash V2 - Operations`.
+	- Move it into Drive folder `Lavage`.
+	- Save `SPREADSHEET_ID` in Script Properties.
+	- Create all required tabs/headers automatically.

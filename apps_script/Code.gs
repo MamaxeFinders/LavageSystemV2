@@ -242,9 +242,68 @@ function include(filename) {
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('Carwash Setup')
+    .addItem('Create/Link Lavage Sheet', 'bootstrapLavageSheetForEfinders')
     .addItem('Open Setup Panel', 'openSetupSidebar')
     .addItem('Run Configuration Test', 'testSystemConfiguration')
     .addToUi();
+}
+
+function bootstrapLavageSheetForEfinders() {
+  return bootstrapLavageSheet_('Lavage', 'Clean Wash V2 - Operations');
+}
+
+function bootstrapLavageSheet_(folderName, spreadsheetName) {
+  const props = PropertiesService.getScriptProperties();
+  const folderIterator = DriveApp.getFoldersByName(folderName);
+  if (!folderIterator.hasNext()) {
+    return {
+      ok: false,
+      error: 'folder_not_found',
+      folder: folderName,
+      message: 'Google Drive folder not found: ' + folderName
+    };
+  }
+
+  const folder = folderIterator.next();
+  const existingId = getRequiredProperty_('SPREADSHEET_ID', '');
+  let spreadsheet = null;
+  let created = false;
+
+  if (existingId) {
+    try {
+      spreadsheet = SpreadsheetApp.openById(existingId);
+    } catch (error) {
+      spreadsheet = null;
+    }
+  }
+
+  if (!spreadsheet) {
+    spreadsheet = SpreadsheetApp.create(spreadsheetName);
+    created = true;
+  }
+
+  const file = DriveApp.getFileById(spreadsheet.getId());
+  folder.addFile(file);
+  try {
+    DriveApp.getRootFolder().removeFile(file);
+  } catch (error) {
+    // Ignore if file is already not in root or permission does not allow removal.
+  }
+
+  props.setProperty('SPREADSHEET_ID', spreadsheet.getId());
+  ensureSheets_();
+  logSetup_('bootstrap_lavage_sheet', 'ok', (created ? 'created' : 'linked') + ':' + spreadsheet.getId());
+
+  return {
+    ok: true,
+    created: created,
+    folder: folderName,
+    spreadsheetId: spreadsheet.getId(),
+    spreadsheetUrl: spreadsheet.getUrl(),
+    message: created
+      ? 'Spreadsheet created, linked, and initialized in folder ' + folderName
+      : 'Existing spreadsheet linked and initialized in folder ' + folderName
+  };
 }
 
 function openSetupSidebar() {
