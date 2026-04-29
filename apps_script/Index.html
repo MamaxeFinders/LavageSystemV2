@@ -365,9 +365,79 @@
       margin-bottom: 8px;
     }
 
+    .module-nav {
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .module-tab {
+      background: rgba(23, 43, 47, 0.06);
+      color: var(--ink);
+      box-shadow: none;
+      border: 1px solid rgba(23, 43, 47, 0.16);
+      font-weight: 600;
+    }
+
+    .module-tab.active {
+      background: linear-gradient(180deg, var(--accent), var(--accent-strong));
+      color: #f9fbfb;
+      border: 0;
+      box-shadow: 0 10px 24px rgba(11, 93, 88, 0.22);
+    }
+
+    .admin-page {
+      display: none;
+    }
+
+    .admin-page.active {
+      display: block;
+    }
+
+    .device-filter-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .device-filter-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.6);
+      border: 1px solid rgba(23, 43, 47, 0.1);
+      font-size: 0.9rem;
+    }
+
+    .switch-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 10px;
+      margin-bottom: 8px;
+      background: rgba(255, 255, 255, 0.6);
+      border-radius: 12px;
+    }
+
+    .setup-chip-ok {
+      background: rgba(45, 122, 79, 0.16);
+    }
+
+    .setup-chip-missing {
+      background: rgba(183, 75, 47, 0.16);
+    }
+
     @media (max-width: 900px) {
       .admin-grid,
       .history-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .module-nav {
         grid-template-columns: 1fr;
       }
     }
@@ -406,9 +476,14 @@
         <div class="stat"><div class="stat-label">Defective now</div><div id="statDefective" class="stat-value">0</div></div>
         <div class="stat"><div class="stat-label">Last refresh</div><div id="statRefresh" class="stat-value stat-refresh">Waiting</div></div>
       </div>
+      <div class="module-nav">
+        <button id="tab-module1" class="module-tab active" onclick="switchModule('module1')">Module 1 - Status</button>
+        <button id="tab-module2" class="module-tab" onclick="switchModule('module2')">Module 2 - Transactions</button>
+        <button id="tab-module3" class="module-tab" onclick="switchModule('module3')">Module 3 - Credit & Control</button>
+      </div>
     </section>
 
-    <section class="panel">
+    <section id="module1" class="panel admin-page active">
       <div class="panel-head">
         <div>
           <h2>Module 1: Hardware & software status</h2>
@@ -431,26 +506,26 @@
       </div>
     </section>
 
-    <section class="panel">
+    <section id="module2" class="panel admin-page">
       <div class="panel-head">
         <div>
           <h2>Module 2: Transactions dashboard</h2>
-          <p class="muted">Latest transactions with period selection and yearly turnover by device.</p>
+          <p class="muted">Select period and device(s) to visualize turnover charts.</p>
         </div>
       </div>
       <div class="form-row">
         <div class="field">
-          <label for="periodMode">Histogram period</label>
+          <label for="periodMode">Chart period</label>
           <select id="periodMode" onchange="renderTransactionCharts()">
             <option value="day">Per day</option>
             <option value="week">Per week</option>
             <option value="month">Per month</option>
           </select>
         </div>
-        <div class="field">
-          <label for="periodLength">Number of buckets</label>
-          <input id="periodLength" type="number" min="3" max="24" value="12" onchange="renderTransactionCharts()">
-        </div>
+      </div>
+      <div class="field mt-8">
+        <label>Device turnover filters</label>
+        <div id="turnoverDeviceFilters" class="device-filter-grid"></div>
       </div>
       <div class="history-grid mt-14">
         <div>
@@ -468,11 +543,11 @@
       </div>
     </section>
 
-    <section class="panel">
+    <section id="module3" class="panel admin-page">
       <div class="panel-head">
         <div>
           <h2>Module 3: Credit and device control</h2>
-          <p class="muted">Default credit is 3.00 EUR (300 cents). Acknowledgement status is shown after command publication.</p>
+          <p class="muted">Default credit is 3.00 EUR. Acknowledgement status is visible after credit/control actions.</p>
         </div>
       </div>
       <div class="form-row">
@@ -483,10 +558,6 @@
         <div class="field">
           <label for="amountEuro">Credit (EUR)</label>
           <input id="amountEuro" type="number" min="0.5" step="0.5" value="3">
-        </div>
-        <div class="field">
-          <label for="sessions">Sessions</label>
-          <input id="sessions" type="number" min="1" max="10" value="1">
         </div>
       </div>
       <div class="form-row admin-actions-row">
@@ -516,6 +587,7 @@
   <script>
     let pollTimer = null;
     let lastDashboard = null;
+    let activeModule = 'module1';
     let defectNowChart = null;
     let defectHistoryChart = null;
     let txnHistogramChart = null;
@@ -576,6 +648,22 @@
       return machine.machine_name || ('MACHINE_' + machine.machine_id);
     }
 
+    function switchModule(moduleId) {
+      activeModule = moduleId;
+      ['module1', 'module2', 'module3'].forEach(id => {
+        const page = document.getElementById(id);
+        const tab = document.getElementById('tab-' + id);
+        const isActive = id === moduleId;
+        if (page) {
+          page.classList.toggle('active', isActive);
+        }
+        if (tab) {
+          tab.classList.toggle('active', isActive);
+        }
+      });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
     function destroyChart(chart) {
       if (chart) {
         chart.destroy();
@@ -591,7 +679,7 @@
       }
       target.innerHTML = entries.map(([key, value]) => {
         const ok = value === 'configured';
-        return `<span class="chip" style="background:${ok ? 'rgba(45,122,79,0.16)' : 'rgba(183,75,47,0.16)'};">${key}: ${ok ? 'OK' : 'MISSING'}</span>`;
+        return `<span class="chip ${ok ? 'setup-chip-ok' : 'setup-chip-missing'}">${key}: ${ok ? 'OK' : 'MISSING'}</span>`;
       }).join('');
     }
 
@@ -694,12 +782,17 @@
         return;
       }
       const mode = document.getElementById('periodMode').value;
-      const length = Math.max(3, Math.min(24, safeNum(document.getElementById('periodLength').value) || 12));
+      const selectedDevices = Array.from(document.querySelectorAll('.turnover-device-checkbox:checked')).map(el => el.value);
+      const length = mode === 'day' ? 30 : (mode === 'week' ? 26 : 12);
       const payments = (lastDashboard.payments || []).slice().reverse();
 
       const histogramMap = {};
       payments.forEach(row => {
         if (String(row.status || '').toLowerCase() !== 'published') {
+          return;
+        }
+        const rowDevice = String(row.machine_name || row.machine_id || 'Unknown');
+        if (selectedDevices.length && selectedDevices.indexOf(rowDevice) === -1) {
           return;
         }
         const dt = new Date(row.timestamp);
@@ -733,6 +826,9 @@
           return;
         }
         const name = String(row.machine_name || row.machine_id || 'Unknown');
+        if (selectedDevices.length && selectedDevices.indexOf(name) === -1) {
+          return;
+        }
         byDevice[name] = (byDevice[name] || 0) + safeNum(row.amount_cents || row.amount || 0) / 100;
       });
       const deviceLabels = Object.keys(byDevice);
@@ -749,6 +845,17 @@
       });
     }
 
+    function renderTurnoverDeviceFilters(machines) {
+      const root = document.getElementById('turnoverDeviceFilters');
+      if (!root) {
+        return;
+      }
+      const names = machines.map(machine => machineDisplayName(machine));
+      root.innerHTML = names.map(name => {
+        return `<label class="device-filter-item"><input class="turnover-device-checkbox" type="checkbox" value="${name}" checked onchange="renderTransactionCharts()">${name}</label>`;
+      }).join('');
+    }
+
     function renderDeviceSwitches(machines) {
       const root = document.getElementById('deviceSwitchList');
       if (!machines.length) {
@@ -757,7 +864,7 @@
       }
       root.innerHTML = machines.map(machine => {
         const checked = truthy(machine.enabled) ? 'checked' : '';
-        return `<label style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;margin-bottom:8px;background:rgba(255,255,255,0.6);border-radius:12px;">
+        return `<label class="switch-row">
           <span>${machineDisplayName(machine)} (${machine.machine_type || 'UNKNOWN'})</span>
           <input type="checkbox" ${checked} onchange="toggleDeviceState('${machine.machine_id}', this.checked)">
         </label>`;
@@ -816,6 +923,7 @@
       document.getElementById('statRefresh').textContent = new Date().toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris' });
 
       renderDeviceSwitches(machines);
+      renderTurnoverDeviceFilters(machines);
     }
 
     function renderTable(targetId, rows) {
@@ -859,8 +967,7 @@
       const machine = document.getElementById('machineSelect').value;
       const amountEuro = safeNum(document.getElementById('amountEuro').value);
       const amount = Math.round(amountEuro * 100);
-      const sessions = document.getElementById('sessions').value;
-      google.script.run.withSuccessHandler(showCommandResult).sendAdminCredit(machine, amount, sessions);
+      google.script.run.withSuccessHandler(showCommandResult).sendAdminCredit(machine, amount, 1);
     }
 
     function toggleDeviceState(machineId, enabled) {
@@ -952,6 +1059,7 @@
         return;
       }
       document.getElementById('adminApp').hidden = false;
+      switchModule(activeModule);
       loadDashboard();
       pollTimer = setInterval(loadDashboard, 8000);
     }
