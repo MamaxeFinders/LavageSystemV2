@@ -942,6 +942,10 @@ function getDashboardData_() {
   };
 }
 
+function getDashboardData() {
+  return getDashboardData_();
+}
+
 function ingestStatusSnapshot_(body) {
   const machines = body.machines || [];
   const activeMachineIds = [];
