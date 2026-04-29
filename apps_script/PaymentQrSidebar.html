@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QR & Payment URLs</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 12px; color: #1f2937; }
+    h2 { margin: 0 0 8px; }
+    .intro { font-size: 12px; background: #eef5ff; border: 1px solid #c8dcff; padding: 10px; border-radius: 8px; margin-bottom: 12px; }
+    .summary { font-size: 12px; background: #f9fafb; border: 1px solid #e5e7eb; padding: 8px; border-radius: 8px; margin-bottom: 12px; white-space: pre-wrap; }
+    .toolbar { margin-bottom: 10px; }
+    button { margin: 4px 4px 4px 0; padding: 8px 10px; }
+    .card { border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px; margin-bottom: 10px; background: #fff; }
+    .title { font-weight: bold; margin-bottom: 6px; }
+    .meta { font-size: 12px; color: #4b5563; margin-bottom: 8px; }
+    .url { font-size: 11px; background: #f3f4f6; padding: 6px; border-radius: 6px; word-break: break-all; margin-bottom: 8px; }
+    .qr { width: 160px; height: 160px; border: 1px solid #d1d5db; border-radius: 6px; display: block; }
+  </style>
+</head>
+<body>
+  <h2>QR & Payment URL Generator</h2>
+  <div class="intro">
+    One QR code per machine. Share/print the <b>Entry URL</b> QR with users.
+    User opens entry page, machine health is checked, then payment continues.
+  </div>
+
+  <div class="toolbar">
+    <button onclick="reloadCatalog()">Refresh catalog</button>
+    <button onclick="copyAllEntryUrls()">Copy all entry URLs</button>
+  </div>
+
+  <div id="summary" class="summary">Loading...</div>
+  <div id="cards"></div>
+
+  <script>
+    let catalog = null;
+
+    function setSummary(text) {
+      document.getElementById('summary').textContent = text;
+    }
+
+    function copyText(text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text);
+      }
+    }
+
+    function copyAllEntryUrls() {
+      if (!catalog || !catalog.machines || !catalog.machines.length) return;
+      const lines = catalog.machines.map(m => (m.machine_name || m.machine_id) + ': ' + (m.entry_url || '')); 
+      copyText(lines.join('\n'));
+      setSummary('Copied all entry URLs to clipboard.\n\n' + document.getElementById('summary').textContent);
+    }
+
+    function renderCards(machines) {
+      const root = document.getElementById('cards');
+      if (!machines || !machines.length) {
+        root.innerHTML = '<p>No machines found in Machines sheet.</p>';
+        return;
+      }
+
+      let html = '';
+      machines.forEach(machine => {
+        const machineLabel = (machine.machine_name || ('MACHINE_' + machine.machine_id));
+        html += '<div class="card">';
+        html += '<div class="title">' + machineLabel + ' (ID ' + (machine.machine_id || '') + ')</div>';
+        html += '<div class="meta">Type: ' + (machine.machine_type || 'UNKNOWN') + '</div>';
+        html += '<div class="meta"><b>Entry URL (for user QR):</b></div>';
+        html += '<div class="url">' + (machine.entry_url || '') + '</div>';
+        html += '<div class="meta"><b>Stripe redirect URL (optional direct):</b></div>';
+        html += '<div class="url">' + (machine.stripe_redirect_url || '') + '</div>';
+        if (machine.qr_url) {
+          html += '<img class="qr" src="' + machine.qr_url + '" alt="QR for ' + machineLabel.replace(/"/g, '&quot;') + '" />';
+        } else {
+          html += '<div class="meta">Missing web app URL. Set WEB_APP_URL or deploy web app.</div>';
+        }
+        html += '<div class="meta">Mapped Stripe links: ' + (machine.stripe_payment_link_1 || '-') + ' | ' + (machine.stripe_payment_link_2 || '-') + '</div>';
+        html += '</div>';
+      });
+      root.innerHTML = html;
+    }
+
+    function reloadCatalog() {
+      google.script.run.withSuccessHandler(result => {
+        catalog = result;
+        const summary = [
+          'Web App URL: ' + (result.web_app_url || '[missing]'),
+          'Stripe base redirect: ' + (result.stripe_machine_link_base || '[missing]'),
+          'Machines in catalog: ' + ((result.machines || []).length)
+        ].join('\n');
+        setSummary(summary);
+        renderCards(result.machines || []);
+      }).getPaymentQrCatalog();
+    }
+
+    reloadCatalog();
+  </script>
+</body>
+</html>

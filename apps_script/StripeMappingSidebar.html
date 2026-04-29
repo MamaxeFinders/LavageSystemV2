@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stripe Mapping</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 12px; color: #1f2937; }
+    h2 { margin: 0 0 8px; }
+    .intro { font-size: 12px; background: #eef5ff; border: 1px solid #c8dcff; padding: 10px; border-radius: 8px; margin-bottom: 12px; }
+    .legend { display: flex; gap: 8px; margin: 10px 0 12px; flex-wrap: wrap; }
+    .chip { font-size: 11px; font-weight: bold; border-radius: 12px; padding: 3px 8px; color: #fff; }
+    .chip.red { background: #d32f2f; }
+    .chip.orange { background: #ef6c00; }
+    .chip.green { background: #2e7d32; }
+    .field { margin-bottom: 10px; }
+    label { display: block; font-size: 12px; margin-bottom: 4px; color: #4b5563; }
+    input, select { width: 100%; box-sizing: border-box; padding: 8px; }
+    button { margin: 4px 4px 4px 0; padding: 8px 10px; }
+    .status { background: #f4f4f4; border: 1px solid #ddd; padding: 8px; font-size: 12px; white-space: pre-wrap; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
+    th, td { border: 1px solid #e5e7eb; padding: 6px; text-align: left; }
+    th { background: #f9fafb; }
+  </style>
+</head>
+<body>
+  <h2>Stripe Machine Mapping</h2>
+  <div class="intro">
+    Map each CAISSE/ASPI to one or two Stripe Payment Link IDs (plink_...).
+    Credit sent to machine uses the paid Stripe amount (<b>amount_total</b>) automatically.
+  </div>
+
+  <div class="legend">
+    <span class="chip red">RED: No Stripe link</span>
+    <span class="chip orange">ORANGE: One Stripe link</span>
+    <span class="chip green">GREEN: Two Stripe links</span>
+  </div>
+
+  <div class="field">
+    <label for="machineSelect">Machine</label>
+    <select id="machineSelect"></select>
+  </div>
+
+  <div class="field">
+    <label for="stripePaymentLink1">Stripe Payment Link 1 (plink_...)</label>
+    <input id="stripePaymentLink1" placeholder="plink_..." />
+  </div>
+
+  <div class="field">
+    <label for="stripePaymentLink2">Stripe Payment Link 2 (optional)</label>
+    <input id="stripePaymentLink2" placeholder="plink_..." />
+  </div>
+
+  <button onclick="saveMapping()">Save mapping</button>
+  <button onclick="reloadData()">Refresh list</button>
+
+  <h3>Mapping status</h3>
+  <div id="status" class="status">Loading...</div>
+  <div id="tableContainer"></div>
+
+  <script>
+    let machines = [];
+
+    function chipForStatus(status) {
+      if (status === 'complete') return '<span class="chip green">GREEN</span>';
+      if (status === 'partial') return '<span class="chip orange">ORANGE</span>';
+      return '<span class="chip red">RED</span>';
+    }
+
+    function setStatus(obj) {
+      document.getElementById('status').textContent = JSON.stringify(obj, null, 2);
+    }
+
+    function fillFormFromSelected() {
+      const key = document.getElementById('machineSelect').value;
+      const machine = machines.find(item => String(item.machine_id) === key || String(item.machine_name) === key);
+      document.getElementById('stripePaymentLink1').value = machine ? (machine.stripe_payment_link_1 || '') : '';
+      document.getElementById('stripePaymentLink2').value = machine ? (machine.stripe_payment_link_2 || '') : '';
+    }
+
+    function renderTable(rows) {
+      if (!rows || !rows.length) {
+        document.getElementById('tableContainer').innerHTML = '<p>No machine rows found.</p>';
+        return;
+      }
+      let html = '<table><thead><tr><th>Machine</th><th>Type</th><th>Link 1</th><th>Link 2</th><th>Status</th></tr></thead><tbody>';
+      rows.forEach(row => {
+        html += '<tr>' +
+          '<td>' + (row.machine_name || row.machine_id || '') + '</td>' +
+          '<td>' + (row.machine_type || '') + '</td>' +
+          '<td>' + (row.stripe_payment_link_1 || '') + '</td>' +
+          '<td>' + (row.stripe_payment_link_2 || '') + '</td>' +
+          '<td>' + chipForStatus(row.mapping_status) + '</td>' +
+          '</tr>';
+      });
+      html += '</tbody></table>';
+      document.getElementById('tableContainer').innerHTML = html;
+    }
+
+    function renderMachines(rows) {
+      const select = document.getElementById('machineSelect');
+      select.innerHTML = '';
+      rows.forEach(row => {
+        const option = document.createElement('option');
+        option.value = String(row.machine_id || row.machine_name || '');
+        option.textContent = (row.machine_name || ('MACHINE_' + row.machine_id)) + ' (' + (row.machine_type || 'UNKNOWN') + ')';
+        select.appendChild(option);
+      });
+      fillFormFromSelected();
+    }
+
+    function reloadData() {
+      google.script.run.withSuccessHandler(result => {
+        setStatus(result);
+        machines = (result && result.machines) ? result.machines : [];
+        renderMachines(machines);
+        renderTable(machines);
+      }).getStripeMappingData();
+    }
+
+    function saveMapping() {
+      const payload = {
+        machineKey: document.getElementById('machineSelect').value,
+        stripePaymentLink1: document.getElementById('stripePaymentLink1').value,
+        stripePaymentLink2: document.getElementById('stripePaymentLink2').value
+      };
+      google.script.run.withSuccessHandler(result => {
+        setStatus(result);
+        reloadData();
+      }).saveStripeMachineMapping(payload);
+    }
+
+    document.getElementById('machineSelect').addEventListener('change', fillFormFromSelected);
+    reloadData();
+  </script>
+</body>
+</html>

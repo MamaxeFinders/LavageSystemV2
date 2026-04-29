@@ -507,6 +507,36 @@
       return value === true || value === 'TRUE' || value === 'true' || value === 1 || value === '1';
     }
 
+    function formatParisDateTime(value) {
+      if (value == null || value === '') {
+        return '';
+      }
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) {
+        return String(value);
+      }
+      return parsed.toLocaleString('fr-FR', {
+        timeZone: 'Europe/Paris',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+    }
+
+    function shouldFormatAsTimestamp(header) {
+      const key = String(header || '').toLowerCase();
+      return key.includes('timestamp') ||
+        key.includes('date') ||
+        key.includes('seen') ||
+        key.includes('updated') ||
+        key.includes('assigned') ||
+        key.includes('resolved') ||
+        key.includes('snapshot');
+    }
+
     function formatBool(value) {
       return truthy(value) ? 'yes' : 'no';
     }
@@ -560,7 +590,7 @@
       document.getElementById('statMachines').textContent = String(machines.length);
       document.getElementById('statOnline').textContent = String(machines.filter(machine => truthy(machine.online)).length);
       document.getElementById('statHealthy').textContent = String(machines.filter(machine => truthy(machine.online) && truthy(machine.healthy)).length);
-      document.getElementById('statRefresh').textContent = new Date().toLocaleTimeString();
+      document.getElementById('statRefresh').textContent = new Date().toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris' });
     }
 
     function renderTable(targetId, rows) {
@@ -572,7 +602,11 @@
       const headers = Object.keys(rows[0]);
       let html = '<table><thead><tr>' + headers.map(header => `<th>${header}</th>`).join('') + '</tr></thead><tbody>';
       rows.forEach(row => {
-        html += '<tr>' + headers.map(header => `<td>${row[header] == null ? '' : row[header]}</td>`).join('') + '</tr>';
+        html += '<tr>' + headers.map(header => {
+          const raw = row[header] == null ? '' : row[header];
+          const value = shouldFormatAsTimestamp(header) ? formatParisDateTime(raw) : raw;
+          return `<td>${value}</td>`;
+        }).join('') + '</tr>';
       });
       html += '</tbody></table>';
       target.innerHTML = html;

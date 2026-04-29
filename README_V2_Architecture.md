@@ -49,6 +49,7 @@ Use **Google Apps Script + Google Sheets only** for the cloud/backend/UI layer.
   - admin command log
   - aggregated reporting views
 - **Apps Script Web App** serves the admin dashboard UI.
+- Apps Script sidebars in the linked sheet provide setup, Stripe mapping, and QR generation operations.
 
 ## Why not direct Stripe QR to a static Stripe product anymore
 The V2 requirement says users must not be able to pay if a machine is faulty.
@@ -60,6 +61,12 @@ So the new QR/payment flow should be:
 4. If machine is faulty or disabled, the page blocks payment and shows an out-of-service message.
 
 This is much safer than a static Stripe QR that bypasses machine health.
+
+### Stripe amount semantics
+- Webhook credit value is sourced from Stripe `checkout.session.amount_total`.
+- This field is in the smallest currency unit.
+- For EUR this means cents, so `1.00 EUR` becomes `100` credit units.
+- Non-EUR or invalid webhook amounts are routed to manual review instead of auto-credit.
 
 ## RS485 protocol v1
 Use simple ASCII frames with CRC16 and sequence numbers.

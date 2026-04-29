@@ -7,27 +7,36 @@
   <style>
     body { font-family: Arial, sans-serif; margin: 12px; }
     h2 { margin: 0 0 8px; }
-    .field { margin-bottom: 10px; }
+    .field { margin-bottom: 10px; border-left: 4px solid #d32f2f; padding-left: 8px; }
+    .field-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     label { display: block; font-size: 12px; color: #444; margin-bottom: 4px; }
     input { width: 100%; box-sizing: border-box; padding: 8px; }
     button { margin: 4px 4px 4px 0; padding: 8px 10px; }
     .status { background: #f4f4f4; border: 1px solid #ddd; padding: 8px; font-size: 12px; white-space: pre-wrap; }
+    .chip { font-size: 11px; font-weight: bold; border-radius: 12px; padding: 3px 8px; color: #fff; }
+    .red { background: #d32f2f; }
+    .orange { background: #ef6c00; }
+    .green { background: #2e7d32; }
+    .field-red { border-left-color: #d32f2f; }
+    .field-orange { border-left-color: #ef6c00; }
+    .field-green { border-left-color: #2e7d32; }
   </style>
 </head>
 <body>
   <h2>Carwash Setup</h2>
-  <div class="field"><label for="emqxApiBase">EMQX API base URL</label><input id="emqxApiBase" placeholder="https://.../api/v5" /></div>
-  <div class="field"><label for="emqxAppId">EMQX App ID</label><input id="emqxAppId" placeholder="app-id" /></div>
-  <div class="field"><label for="emqxAppSecret">EMQX App Secret</label><input id="emqxAppSecret" type="password" placeholder="app-secret" /></div>
-  <div class="field"><label for="mqttTopicCmd">MQTT command topic</label><input id="mqttTopicCmd" placeholder="carwash/site1/bridge/cmd" /></div>
-  <div class="field"><label for="mqttTopicStatus">MQTT status topic</label><input id="mqttTopicStatus" placeholder="carwash/site1/bridge/status" /></div>
-  <div class="field"><label for="mqttTopicAck">MQTT ack topic</label><input id="mqttTopicAck" placeholder="carwash/site1/bridge/ack" /></div>
-  <div class="field"><label for="stripeWebhookSecret">Stripe webhook secret</label><input id="stripeWebhookSecret" type="password" placeholder="whsec_..." /></div>
-  <div class="field"><label for="stripeSecretKey">Stripe secret key</label><input id="stripeSecretKey" type="password" placeholder="sk_live_..." /></div>
-  <div class="field"><label for="webAppUrl">Google Web App URL</label><input id="webAppUrl" placeholder="https://script.google.com/..." /></div>
-  <div class="field"><label for="adminAllowlist">Admin email allowlist (comma separated)</label><input id="adminAllowlist" placeholder="admin@example.com" /></div>
+  <div class="field field-red" id="field-emqxApiBase"><div class="field-header"><label for="emqxApiBase">EMQX API base URL</label><span id="chip-emqxApiBase" class="chip red">MISSING</span></div><input id="emqxApiBase" placeholder="https://.../api/v5" /></div>
+  <div class="field field-red" id="field-emqxAppId"><div class="field-header"><label for="emqxAppId">EMQX App ID</label><span id="chip-emqxAppId" class="chip red">MISSING</span></div><input id="emqxAppId" placeholder="app-id" /></div>
+  <div class="field field-red" id="field-emqxAppSecret"><div class="field-header"><label for="emqxAppSecret">EMQX App Secret</label><span id="chip-emqxAppSecret" class="chip red">MISSING</span></div><input id="emqxAppSecret" type="password" placeholder="app-secret" /></div>
+  <div class="field field-red" id="field-mqttTopicCmd"><div class="field-header"><label for="mqttTopicCmd">MQTT command topic</label><span id="chip-mqttTopicCmd" class="chip red">MISSING</span></div><input id="mqttTopicCmd" placeholder="carwash/site1/bridge/cmd" /></div>
+  <div class="field field-red" id="field-mqttTopicStatus"><div class="field-header"><label for="mqttTopicStatus">MQTT status topic</label><span id="chip-mqttTopicStatus" class="chip red">MISSING</span></div><input id="mqttTopicStatus" placeholder="carwash/site1/bridge/status" /></div>
+  <div class="field field-red" id="field-mqttTopicAck"><div class="field-header"><label for="mqttTopicAck">MQTT ack topic</label><span id="chip-mqttTopicAck" class="chip red">MISSING</span></div><input id="mqttTopicAck" placeholder="carwash/site1/bridge/ack" /></div>
+  <div class="field field-red" id="field-stripeWebhookSecret"><div class="field-header"><label for="stripeWebhookSecret">Stripe webhook secret</label><span id="chip-stripeWebhookSecret" class="chip red">MISSING</span></div><input id="stripeWebhookSecret" type="password" placeholder="whsec_..." /></div>
+  <div class="field field-red" id="field-stripeSecretKey"><div class="field-header"><label for="stripeSecretKey">Stripe secret key</label><span id="chip-stripeSecretKey" class="chip red">MISSING</span></div><input id="stripeSecretKey" type="password" placeholder="sk_live_..." /></div>
+  <div class="field field-red" id="field-webAppUrl"><div class="field-header"><label for="webAppUrl">Google Web App URL</label><span id="chip-webAppUrl" class="chip red">MISSING</span></div><input id="webAppUrl" placeholder="https://script.google.com/..." /></div>
+  <div class="field field-red" id="field-adminAllowlist"><div class="field-header"><label for="adminAllowlist">Admin email allowlist (comma separated)</label><span id="chip-adminAllowlist" class="chip red">MISSING</span></div><input id="adminAllowlist" placeholder="admin@example.com" /></div>
 
   <button onclick="saveConfig()">Save setup</button>
+  <button onclick="refreshHealth()">Refresh health</button>
   <button onclick="runTest('emqx')">Test EMQX publish</button>
   <button onclick="runTest('stripe')">Test Stripe connection</button>
   <button onclick="runTest('sheet')">Test Google Sheet write</button>
@@ -37,12 +46,138 @@
   <div id="status" class="status">Loading...</div>
 
   <script>
+    const FIELD_STATUS_KEYS = {
+      emqxApiBase: 'EMQX_API_BASE',
+      emqxAppId: 'EMQX_APP_ID',
+      emqxAppSecret: 'EMQX_APP_SECRET',
+      mqttTopicCmd: 'MQTT_TOPIC_CMD',
+      mqttTopicStatus: 'MQTT_TOPIC_STATUS',
+      mqttTopicAck: 'MQTT_TOPIC_ACK',
+      stripeWebhookSecret: 'STRIPE_WEBHOOK_SECRET',
+      stripeSecretKey: 'STRIPE_SECRET_KEY',
+      webAppUrl: 'WEB_APP_URL',
+      adminAllowlist: 'ADMIN_ALLOWLIST'
+    };
+
+    const GROUPS = {
+      emqx: ['emqxApiBase', 'emqxAppId', 'emqxAppSecret', 'mqttTopicCmd', 'mqttTopicStatus', 'mqttTopicAck'],
+      stripe: ['stripeWebhookSecret', 'stripeSecretKey'],
+      system: ['webAppUrl', 'adminAllowlist']
+    };
+
     function setStatus(obj) {
       document.getElementById('status').textContent = JSON.stringify(obj, null, 2);
     }
 
+    function setFieldVisual(fieldId, state, text) {
+      const field = document.getElementById('field-' + fieldId);
+      const chip = document.getElementById('chip-' + fieldId);
+      if (!field || !chip) return;
+
+      field.classList.remove('field-red', 'field-orange', 'field-green');
+      chip.classList.remove('red', 'orange', 'green');
+
+      if (state === 'green') {
+        field.classList.add('field-green');
+        chip.classList.add('green');
+      } else if (state === 'orange') {
+        field.classList.add('field-orange');
+        chip.classList.add('orange');
+      } else {
+        field.classList.add('field-red');
+        chip.classList.add('red');
+      }
+      chip.textContent = text;
+    }
+
+    function applyBaseStatus(status) {
+      Object.keys(FIELD_STATUS_KEYS).forEach(fieldId => {
+        const key = FIELD_STATUS_KEYS[fieldId];
+        if (status[key] === 'configured') {
+          setFieldVisual(fieldId, 'orange', 'CONFIGURED');
+        } else {
+          setFieldVisual(fieldId, 'red', 'MISSING');
+        }
+      });
+    }
+
+    function applyGroupTest(group, ok, status) {
+      const fields = GROUPS[group] || [];
+      fields.forEach(fieldId => {
+        const key = FIELD_STATUS_KEYS[fieldId];
+        if (status[key] !== 'configured') {
+          setFieldVisual(fieldId, 'red', 'MISSING');
+          return;
+        }
+        if (ok) {
+          setFieldVisual(fieldId, 'green', 'FUNCTIONAL');
+        } else {
+          setFieldVisual(fieldId, 'orange', 'TEST FAILED');
+        }
+      });
+    }
+
+    function callAppsScript(fnName, payload) {
+      return new Promise(resolve => {
+        const runner = google.script.run
+          .withSuccessHandler(result => resolve({ ok: true, result }))
+          .withFailureHandler(error => resolve({ ok: false, error: String(error) }));
+        if (payload === undefined) {
+          runner[fnName]();
+        } else {
+          runner[fnName](payload);
+        }
+      });
+    }
+
+    async function refreshHealth() {
+      const statusResp = await callAppsScript('getSetupConfigStatus');
+      if (!statusResp.ok || !statusResp.result || !statusResp.result.status) {
+        setStatus({ ok: false, error: 'Failed to load setup status', details: statusResp.error || '' });
+        return;
+      }
+
+      const status = statusResp.result.status;
+      applyBaseStatus(status);
+
+      let emqxOk = false;
+      let stripeOk = false;
+      let systemOk = false;
+
+      const emqxConfigured = GROUPS.emqx.every(fieldId => status[FIELD_STATUS_KEYS[fieldId]] === 'configured');
+      if (emqxConfigured) {
+        const emqxResp = await callAppsScript('testEmqxPublish');
+        emqxOk = !!(emqxResp.ok && emqxResp.result && emqxResp.result.ok);
+      }
+      applyGroupTest('emqx', emqxOk, status);
+
+      const stripeConfigured = GROUPS.stripe.every(fieldId => status[FIELD_STATUS_KEYS[fieldId]] === 'configured');
+      if (stripeConfigured) {
+        const stripeResp = await callAppsScript('testStripeConnection');
+        stripeOk = !!(stripeResp.ok && stripeResp.result && stripeResp.result.ok);
+      }
+      applyGroupTest('stripe', stripeOk, status);
+
+      const systemConfigured = GROUPS.system.every(fieldId => status[FIELD_STATUS_KEYS[fieldId]] === 'configured');
+      if (systemConfigured) {
+        const systemResp = await callAppsScript('testGoogleSetup');
+        systemOk = !!(systemResp.ok && systemResp.result && systemResp.result.ok);
+      }
+      applyGroupTest('system', systemOk, status);
+
+      setStatus({
+        ok: true,
+        fields: status,
+        tests: {
+          emqx: emqxConfigured ? emqxOk : null,
+          stripe: stripeConfigured ? stripeOk : null,
+          system: systemConfigured ? systemOk : null
+        }
+      });
+    }
+
     function loadStatus() {
-      google.script.run.withSuccessHandler(setStatus).getSetupConfigStatus();
+      refreshHealth();
     }
 
     function saveConfig() {
@@ -58,18 +193,18 @@
         webAppUrl: document.getElementById('webAppUrl').value,
         adminAllowlist: document.getElementById('adminAllowlist').value
       };
-      google.script.run.withSuccessHandler(setStatus).saveSetupConfig(payload);
+      google.script.run.withSuccessHandler(() => refreshHealth()).saveSetupConfig(payload);
     }
 
     function runTest(type) {
       if (type === 'emqx') {
-        google.script.run.withSuccessHandler(setStatus).testEmqxPublish();
+        google.script.run.withSuccessHandler(() => refreshHealth()).testEmqxPublish();
       } else if (type === 'stripe') {
-        google.script.run.withSuccessHandler(setStatus).testStripeConnection();
+        google.script.run.withSuccessHandler(() => refreshHealth()).testStripeConnection();
       } else if (type === 'sheet') {
         google.script.run.withSuccessHandler(setStatus).testSheetWrite();
       } else {
-        google.script.run.withSuccessHandler(setStatus).testSystemConfiguration();
+        google.script.run.withSuccessHandler(() => refreshHealth()).testGoogleSetup();
       }
     }
 

@@ -13,6 +13,9 @@ This deployment keeps payment, remote control, and reporting in Google Apps Scri
 - `firmware/aspi/ASPI_V2.ino`
 - `apps_script/Code.gs`
 - `apps_script/Index.html`
+- `apps_script/SetupSidebar.html`
+- `apps_script/StripeMappingSidebar.html`
+- `apps_script/PaymentQrSidebar.html`
 - `apps_script/appsscript.json`
 
 ## 1. Verify hardware wiring
@@ -37,27 +40,38 @@ This deployment keeps payment, remote control, and reporting in Google Apps Scri
 
 ## 3. Google Apps Script setup
 
-- Create a standalone Apps Script project.
-- Copy the three files from `apps_script/` into that project.
+- Use the existing sheet-linked Apps Script project for this deployment.
+- Preferred workflow is `clasp` from `apps_script/` so all files stay in sync with GitHub.
 - Set Script Properties:
   - `SPREADSHEET_ID`
   - `EMQX_API_BASE`
   - `EMQX_APP_ID`
   - `EMQX_APP_SECRET`
   - `MQTT_TOPIC_CMD` with value `carwash/site1/bridge/cmd`
+  - `MQTT_TOPIC_STATUS` with value `carwash/site1/bridge/status`
+  - `MQTT_TOPIC_ACK` with value `carwash/site1/bridge/ack`
+  - `STRIPE_WEBHOOK_SECRET`
+  - `STRIPE_SECRET_KEY`
+  - `WEB_APP_URL`
+  - `ADMIN_ALLOWLIST`
   - `STRIPE_MACHINE_LINK_BASE` with the machine-specific Stripe redirect base
 - Deploy as Web App.
 - Open the deployed URL once so the sheets schema is created.
+- Confirm project time zone is `Europe/Paris`.
 
 ## 4. Google Sheets schema
 
 The Apps Script project creates these tabs automatically:
 
 - `Machines`
+- `Assignments`
 - `Events`
+- `Faults`
 - `Payments`
 - `Commands`
-- `DailySummary`
+- `Daily_Summary`
+- `System_Config`
+- `Setup_Log`
 
 ## 5. Central KC868-F4 firmware
 
@@ -142,6 +156,11 @@ The Apps Script project creates these tabs automatically:
   - `https://script.google.com/macros/s/.../exec?action=stripe_entry&machine_id=1`
 - The page checks the latest machine snapshot before allowing the Stripe redirect.
 - If the machine is offline, disabled, or faulty, payment is blocked.
+- Maintain payment link mapping from menu `Carwash Setup > Open Stripe Mapping Panel`.
+- Generate machine-specific QR and URLs from menu `Carwash Setup > Open QR & URL Generator`.
+- Stripe webhook credit amount uses Stripe `checkout.session.amount_total` in the smallest unit.
+- For EUR this means cents, e.g. `1.00 EUR => 100` credits sent to machine.
+- Automatic credit is blocked if currency is not EUR or amount is invalid.
 
 ## 9. Validation checklist
 
@@ -164,3 +183,4 @@ The Apps Script project creates these tabs automatically:
 - `legacy_pulse` exists only as explicit maintenance mode and requires `maintenance_mode=true` in the command payload.
 - Apps Script and Stripe secrets stay in Script Properties on Google side. ESP32-side bridge settings now live in Preferences/NVS and can be edited from the device setup portal instead of by uploading firmware again.
 - The intended operating mode is: configure once, reboot fast, and only reopen configuration when an admin explicitly requests a change.
+- Operator-facing timestamps in Apps Script logs and dashboard are standardized to Europe/Paris.

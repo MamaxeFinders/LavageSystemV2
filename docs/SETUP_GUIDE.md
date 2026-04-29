@@ -38,3 +38,25 @@
 	- Move it into the Drive folder above.
 	- Save `SPREADSHEET_ID` in Script Properties.
 	- Create all required tabs/headers automatically.
+
+## 7. Setup sidebars and tests
+1. In the linked sheet menu, open `Carwash Setup > Open Setup Panel`.
+2. Save these required properties:
+	- `EMQX_API_BASE`, `EMQX_APP_ID`, `EMQX_APP_SECRET`
+	- `MQTT_TOPIC_CMD`, `MQTT_TOPIC_STATUS`, `MQTT_TOPIC_ACK`
+	- `STRIPE_WEBHOOK_SECRET`, `STRIPE_SECRET_KEY`
+	- `WEB_APP_URL`, `ADMIN_ALLOWLIST`
+3. Use `Refresh health` and verify chips become `FUNCTIONAL`.
+4. Google checks validate web app URL format and admin allow list emails.
+
+## 8. Stripe mapping and QR catalog
+1. Open `Carwash Setup > Open Stripe Mapping Panel`.
+2. Map each machine to one or two Stripe Payment Link IDs (`plink_...`).
+3. Open `Carwash Setup > Open QR & URL Generator`.
+4. Generate and copy one entry URL per machine for sticker QR codes.
+
+## 9. Currency and timestamp rules
+1. Stripe credit amount uses `checkout.session.amount_total` (smallest currency unit).
+2. For EUR: `1.00 EUR = 100` machine credit units.
+3. Non-EUR or invalid amount webhook events are blocked for manual review.
+4. Google Apps Script and dashboard timestamps are standardized to Europe/Paris.

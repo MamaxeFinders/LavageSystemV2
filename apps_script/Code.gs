@@ -130,7 +130,20 @@ const FAULT_HEADERS = ['timestamp', 'machine_id', 'severity', 'event_type', 'mes
 const DAILY_HEADERS = ['date', 'machine_id', 'machine_name', 'revenue_cents', 'session_count'];
 const SYSTEM_CONFIG_HEADERS = ['key', 'value', 'updated_at'];
 const SETUP_LOG_HEADERS = ['timestamp', 'action', 'result', 'details'];
+const PARIS_TIMEZONE = 'Europe/Paris';
 const EFINDERS_LAVAGE_FOLDER_ID = '1nRXyDgha3opObmQV1VdYSwIO06ucAbL8';
+const PRIMARY_SPREADSHEET_ID = '1bb8spIX9BdwmkA-crni0Jk1OEpsrDHqu1ENX05W30sA';
+
+function formatParisDateTime_(dateValue) {
+  return Utilities.formatDate(new Date(dateValue || new Date()), PARIS_TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
+}
+
+function ensureSpreadsheetTimezone_() {
+  const spreadsheet = getSpreadsheet_();
+  if (spreadsheet.getSpreadsheetTimeZone() !== PARIS_TIMEZONE) {
+    spreadsheet.setSpreadsheetTimeZone(PARIS_TIMEZONE);
+  }
+}
 
 function normalizeMachinePropertyKey_(value) {
   return String(value || '')
@@ -173,6 +186,13 @@ function machineAvailable_(machine) {
 function doGet(e) {
   ensureSheets_();
   const action = (e && e.parameter && e.parameter.action) || 'app';
+
+  if (action === 'bootstrap_lavage') {
+    return jsonOut_(bootstrapLavageSheetForEfinders());
+  }
+  if (action === 'quick_access') {
+    return jsonOut_(getQuickAccessLinks());
+  }
 
   if (action === 'machine_status') {
     return jsonOut_(getMachineStatusByAny_(e.parameter.machine_id || e.parameter.machine || ''));
@@ -243,14 +263,55 @@ function include(filename) {
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('Carwash Setup')
-    .addItem('Create/Link Lavage Sheet', 'bootstrapLavageSheetForEfinders')
+    .addItem('Link Primary Program Sheet', 'bootstrapLavageSheetForEfinders')
+    .addItem('Show Quick Access Links', 'showQuickAccessLinks')
     .addItem('Open Setup Panel', 'openSetupSidebar')
+    .addItem('Open Stripe Mapping Panel', 'openStripeMappingSidebar')
+    .addItem('Open QR & URL Generator', 'openPaymentQrSidebar')
     .addItem('Run Configuration Test', 'testSystemConfiguration')
     .addToUi();
 }
 
 function bootstrapLavageSheetForEfinders() {
-  return bootstrapLavageSheet_('Lavage', 'Clean Wash V2 - Operations', EFINDERS_LAVAGE_FOLDER_ID);
+  return bindSpreadsheetById_(PRIMARY_SPREADSHEET_ID, 'primary_program_sheet');
+}
+
+function bindSpreadsheetById_(spreadsheetId, sourceTag) {
+  const props = PropertiesService.getScriptProperties();
+  const spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+  props.setProperty('SPREADSHEET_ID', spreadsheet.getId());
+  ensureSheets_();
+  logSetup_(sourceTag || 'bind_spreadsheet', 'ok', spreadsheet.getId());
+  return {
+    ok: true,
+    source: sourceTag || 'bind_spreadsheet',
+    spreadsheetId: spreadsheet.getId(),
+    spreadsheetUrl: spreadsheet.getUrl(),
+    message: 'Script is now linked to the primary program spreadsheet.'
+  };
+}
+
+function getQuickAccessLinks() {
+  const spreadsheet = getSpreadsheet_();
+  const webAppUrl = ScriptApp.getService().getUrl() || '';
+  return {
+    ok: true,
+    spreadsheetId: spreadsheet.getId(),
+    spreadsheetUrl: spreadsheet.getUrl(),
+    webAppUrl: webAppUrl,
+    setupHint: 'Open the linked sheet, then use menu Carwash Setup > Open Setup Panel to add keys.'
+  };
+}
+
+function showQuickAccessLinks() {
+  const links = getQuickAccessLinks();
+  const ui = SpreadsheetApp.getUi();
+  ui.alert(
+    'Carwash Quick Access',
+    'Spreadsheet:\n' + links.spreadsheetUrl + '\n\nWeb App:\n' + (links.webAppUrl || 'Deploy web app to get URL') + '\n\n' + links.setupHint,
+    ui.ButtonSet.OK
+  );
+  return links;
 }
 
 function bootstrapLavageSheet_(folderName, spreadsheetName, folderId) {
@@ -327,6 +388,139 @@ function openSetupSidebar() {
     .setTitle('Carwash Setup')
     .setWidth(420);
   SpreadsheetApp.getUi().showSidebar(html);
+}
+
+function openStripeMappingSidebar() {
+  ensureSheets_();
+  const html = HtmlService.createTemplateFromFile('StripeMappingSidebar').evaluate()
+    .setTitle('Stripe Mapping')
+    .setWidth(470);
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+function openPaymentQrSidebar() {
+  ensureSheets_();
+  const html = HtmlService.createTemplateFromFile('PaymentQrSidebar').evaluate()
+    .setTitle('QR & Payment URLs')
+    .setWidth(500);
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+function buildStripeEntryUrl(machineKey) {
+  const webAppUrl = ScriptApp.getService().getUrl() || getRequiredProperty_('WEB_APP_URL', '');
+  if (!webAppUrl) {
+    return '';
+  }
+  const separator = webAppUrl.indexOf('?') === -1 ? '?' : '&';
+  return webAppUrl + separator + 'action=stripe_entry&machine_id=' + encodeURIComponent(machineKey);
+}
+
+function buildQrImageUrl_(targetUrl, size) {
+  const qrSize = size || 320;
+  return 'https://chart.googleapis.com/chart?cht=qr&chs=' + qrSize + 'x' + qrSize + '&chl=' + encodeURIComponent(targetUrl);
+}
+
+function getPaymentQrCatalog() {
+  ensureSheets_();
+  const machines = sheetToObjects_(ensureSheet_(SHEET_MACHINES, MACHINE_HEADERS))
+    .map(normalizeMachineRecord_)
+    .filter(machine => machine.configured_active !== false);
+
+  const rows = machines.map(machine => {
+    const machineKey = String(machine.machine_id || machine.machine_name || '');
+    const entryUrl = buildStripeEntryUrl(machineKey);
+    const stripeRedirectUrl = buildStripeRedirectUrl(machineKey);
+    return {
+      machine_id: machine.machine_id,
+      machine_name: machine.machine_name,
+      machine_type: machine.machine_type,
+      entry_url: entryUrl,
+      qr_url: entryUrl ? buildQrImageUrl_(entryUrl, 320) : '',
+      stripe_redirect_url: stripeRedirectUrl,
+      stripe_payment_link_1: machine.stripe_payment_link_1 || '',
+      stripe_payment_link_2: machine.stripe_payment_link_2 || ''
+    };
+  });
+
+  return {
+    ok: true,
+    web_app_url: ScriptApp.getService().getUrl() || getRequiredProperty_('WEB_APP_URL', ''),
+    stripe_machine_link_base: getRequiredProperty_('STRIPE_MACHINE_LINK_BASE', ''),
+    machines: rows
+  };
+}
+
+function getStripeMappingData() {
+  ensureSheets_();
+  const sheet = ensureSheet_(SHEET_MACHINES, MACHINE_HEADERS);
+  const rows = sheetToObjects_(sheet)
+    .map(normalizeMachineRecord_)
+    .filter(machine => machine.configured_active !== false)
+    .map(machine => {
+      const link1 = String(machine.stripe_payment_link_1 || '').trim();
+      const link2 = String(machine.stripe_payment_link_2 || '').trim();
+      const mappingStatus = !link1 && !link2
+        ? 'missing'
+        : (link1 && link2 ? 'complete' : 'partial');
+      return {
+        machine_id: machine.machine_id,
+        machine_name: machine.machine_name,
+        machine_type: machine.machine_type,
+        stripe_payment_link_1: link1,
+        stripe_payment_link_2: link2,
+        mapping_status: mappingStatus
+      };
+    });
+  return { ok: true, machines: rows };
+}
+
+function saveStripeMachineMapping(input) {
+  ensureSheets_();
+  const machineKey = String(input.machineKey || '').trim();
+  if (!machineKey) {
+    return { ok: false, error: 'missing_machine_key' };
+  }
+
+  const link1 = String(input.stripePaymentLink1 || '').trim();
+  const link2 = String(input.stripePaymentLink2 || '').trim();
+  const sheet = ensureSheet_(SHEET_MACHINES, MACHINE_HEADERS);
+  const values = sheet.getDataRange().getValues();
+  if (values.length < 2) {
+    return { ok: false, error: 'machines_sheet_empty' };
+  }
+
+  const headers = values[0].map(String);
+  const map = headerIndexMap_(headers);
+  let targetRow = -1;
+
+  for (let row = 1; row < values.length; row++) {
+    if (String(values[row][map.machine_id]) === machineKey || String(values[row][map.machine_name]) === machineKey) {
+      targetRow = row;
+      break;
+    }
+  }
+
+  if (targetRow < 0) {
+    return { ok: false, error: 'machine_not_found', machineKey: machineKey };
+  }
+
+  const updated = values[targetRow].slice();
+  if (map.stripe_payment_link_1 != null) {
+    updated[map.stripe_payment_link_1] = link1;
+  }
+  if (map.stripe_payment_link_2 != null) {
+    updated[map.stripe_payment_link_2] = link2;
+  }
+  if (map.notes != null) {
+    const note = link1 || link2
+      ? 'Stripe mapping updated via sidebar on ' + formatParisDateTime_(new Date()) + ' (Europe/Paris)'
+      : 'Stripe mapping cleared via sidebar on ' + formatParisDateTime_(new Date()) + ' (Europe/Paris)';
+    updated[map.notes] = note;
+  }
+
+  sheet.getRange(targetRow + 1, 1, 1, updated.length).setValues([updated]);
+  logSetup_('save_stripe_mapping', 'ok', machineKey + ' => ' + [link1, link2].filter(Boolean).join(','));
+  return { ok: true, machineKey: machineKey, stripe_payment_link_1: link1, stripe_payment_link_2: link2 };
 }
 
 function setupStatus_() {
@@ -426,6 +620,36 @@ function testSheetWrite() {
   }
 }
 
+function testGoogleSetup() {
+  const props = PropertiesService.getScriptProperties();
+  const webAppUrl = String(props.getProperty('WEB_APP_URL') || '').trim();
+  const adminAllowlist = String(props.getProperty('ADMIN_ALLOWLIST') || '').trim();
+
+  const webAppOk = /^https:\/\/script\.google\.com\//i.test(webAppUrl) && /\/exec\b/i.test(webAppUrl);
+  const allowlistEmails = adminAllowlist
+    .split(',')
+    .map(v => v.trim())
+    .filter(Boolean);
+  const invalidEmails = allowlistEmails.filter(email => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
+  const allowlistOk = allowlistEmails.length > 0 && invalidEmails.length === 0;
+
+  const result = {
+    ok: webAppOk && allowlistOk,
+    checks: {
+      WEB_APP_URL: webAppOk,
+      ADMIN_ALLOWLIST: allowlistOk
+    },
+    details: {
+      web_app_url: webAppUrl,
+      allowlist_count: allowlistEmails.length,
+      invalid_emails: invalidEmails
+    }
+  };
+
+  logSetup_('test_google_setup', result.ok ? 'ok' : 'warning', JSON.stringify(result.checks));
+  return result;
+}
+
 function testSystemConfiguration() {
   ensureSheets_();
   const status = setupStatus_();
@@ -445,7 +669,7 @@ function getRequiredProperty_(name, fallback) {
 }
 
 function getSpreadsheet_() {
-  const spreadsheetId = getRequiredProperty_('SPREADSHEET_ID');
+  const spreadsheetId = getRequiredProperty_('SPREADSHEET_ID', PRIMARY_SPREADSHEET_ID);
   return SpreadsheetApp.openById(spreadsheetId);
 }
 
@@ -474,6 +698,7 @@ function ensureSheet_(sheetName, headers) {
 }
 
 function ensureSheets_() {
+  ensureSpreadsheetTimezone_();
   ensureSheet_(SHEET_SYSTEM_CONFIG, SYSTEM_CONFIG_HEADERS);
   ensureSheet_(SHEET_MACHINES, MACHINE_HEADERS);
   ensureSheet_(SHEET_ASSIGNMENTS, ASSIGNMENT_HEADERS);
@@ -1142,6 +1367,83 @@ function logPayment_(payment) {
   ]);
 }
 
+function findMachineByStripePaymentLink_(paymentLinkId) {
+  const link = String(paymentLinkId || '').trim();
+  if (!link) {
+    return { ok: false, error: 'missing_payment_link_id' };
+  }
+
+  const machines = sheetToObjects_(ensureSheet_(SHEET_MACHINES, MACHINE_HEADERS))
+    .map(normalizeMachineRecord_)
+    .filter(machine => machine.configured_active !== false);
+
+  const matches = machines.filter(machine => {
+    const link1 = String(machine.stripe_payment_link_1 || '').trim();
+    const link2 = String(machine.stripe_payment_link_2 || '').trim();
+    return link === link1 || link === link2;
+  });
+
+  if (matches.length === 1) {
+    return { ok: true, machine: matches[0] };
+  }
+  if (matches.length > 1) {
+    return { ok: false, error: 'multiple_machine_match_for_payment_link', payment_link_id: link };
+  }
+  return { ok: false, error: 'payment_link_not_mapped', payment_link_id: link };
+}
+
+function resolveMachineForStripeSession_(session, metadata) {
+  const paymentLinkId = String(metadata.payment_link_id || session.payment_link || '').trim();
+  const machineKey = String(metadata.machine_id || metadata.machine || metadata.Piste || '').trim();
+
+  const byMachineKey = machineKey ? getMachineStatusByAny_(machineKey) : null;
+  const byPaymentLink = paymentLinkId ? findMachineByStripePaymentLink_(paymentLinkId) : null;
+
+  if (byMachineKey && byMachineKey.ok && byPaymentLink && byPaymentLink.ok) {
+    if (String(byMachineKey.machine.machine_id) !== String(byPaymentLink.machine.machine_id)) {
+      return {
+        ok: false,
+        error: 'machine_payment_link_mismatch',
+        machine_from_metadata: byMachineKey.machine.machine_id,
+        machine_from_payment_link: byPaymentLink.machine.machine_id,
+        payment_link_id: paymentLinkId
+      };
+    }
+    return { ok: true, machine: byMachineKey.machine, payment_link_id: paymentLinkId };
+  }
+
+  if (byPaymentLink && byPaymentLink.ok) {
+    return { ok: true, machine: byPaymentLink.machine, payment_link_id: paymentLinkId };
+  }
+
+  if (byMachineKey && byMachineKey.ok) {
+    return { ok: true, machine: byMachineKey.machine, payment_link_id: paymentLinkId };
+  }
+
+  return {
+    ok: false,
+    error: byPaymentLink && !byPaymentLink.ok ? byPaymentLink.error : 'machine_not_found',
+    payment_link_id: paymentLinkId,
+    machine_key: machineKey
+  };
+}
+
+function normalizeStripeAmountToCents_(session, metadata) {
+  const currency = String(session.currency || metadata.currency || 'eur').trim().toLowerCase();
+  const rawAmount = Number(session.amount_total);
+  const fallbackAmount = Number(metadata.amount_cents || 0);
+
+  // Stripe checkout.session.amount_total is in the smallest currency unit.
+  // For EUR this means cents, e.g. 1.00 EUR => 100.
+  const amountCents = Number.isFinite(rawAmount) && rawAmount > 0 ? Math.round(rawAmount) : Math.round(fallbackAmount);
+
+  return {
+    currency: currency,
+    amountCents: amountCents,
+    valid: amountCents > 0
+  };
+}
+
 function handleStripeWebhook_(stripeEvent) {
   const eventType = stripeEvent.type || '';
   if (eventType && eventType !== 'checkout.session.completed') {
@@ -1150,31 +1452,53 @@ function handleStripeWebhook_(stripeEvent) {
 
   const session = stripeEvent.data && stripeEvent.data.object ? stripeEvent.data.object : stripeEvent;
   const metadata = session.metadata || {};
-  const machineKey = metadata.machine_id || metadata.machine || metadata.Piste || '';
-  const amountCents = Number(session.amount_total || metadata.amount_cents || 0);
+  const normalizedAmount = normalizeStripeAmountToCents_(session, metadata);
+  const amountCents = normalizedAmount.amountCents;
+  const currency = normalizedAmount.currency || 'eur';
   const sessions = Number(metadata.sessions || metadata.NombreDeSessions || 1);
+  const paymentLinkId = String(metadata.payment_link_id || session.payment_link || '').trim();
 
-  const machineStatus = getMachineStatusByAny_(machineKey);
-  if (!machineStatus.ok) {
+  if (currency !== 'eur' || !normalizedAmount.valid) {
     logPayment_({
       stripe_event_id: stripeEvent.id || '',
-      machine_id: machineKey,
-      machine_name: machineKey,
+      payment_link_id: paymentLinkId,
+      machine_id: metadata.machine_id || metadata.machine || metadata.Piste || '',
+      machine_name: metadata.machine || metadata.machine_id || metadata.Piste || '',
+      amount_cents: amountCents,
+      sessions: sessions,
+      currency: currency,
+      status: 'invalid_currency_or_amount',
+      source: 'stripe',
+      final_status: 'PAID_MANUAL_REVIEW',
+      manual_review_required: true,
+      notes: 'Blocked automatic credit: expected EUR and positive amount in cents from Stripe amount_total'
+    });
+    return { ok: false, reason: 'invalid_currency_or_amount', currency: currency, amount_cents: amountCents };
+  }
+
+  const machineResolution = resolveMachineForStripeSession_(session, metadata);
+  if (!machineResolution.ok) {
+    logPayment_({
+      stripe_event_id: stripeEvent.id || '',
+      payment_link_id: paymentLinkId,
+      machine_id: metadata.machine_id || metadata.machine || metadata.Piste || '',
+      machine_name: metadata.machine || metadata.machine_id || metadata.Piste || '',
       amount_cents: amountCents,
       sessions: sessions,
       status: 'machine_not_found',
       source: 'stripe',
       final_status: 'PAID_MACHINE_NOT_FOUND',
       manual_review_required: true,
-      notes: 'Payment received but machine mapping not found'
+      notes: 'Payment received but machine mapping invalid: ' + (machineResolution.error || 'unknown')
     });
-    return { ok: false, reason: 'machine_not_found' };
+    return { ok: false, reason: machineResolution.error || 'machine_not_found' };
   }
 
-  const machine = machineStatus.machine;
+  const machine = machineResolution.machine;
   if (!(machine.online && machine.healthy && machine.enabled)) {
     logPayment_({
       stripe_event_id: stripeEvent.id || '',
+      payment_link_id: paymentLinkId,
       machine_id: machine.machine_id,
       machine_name: machine.machine_name,
       amount_cents: amountCents,
@@ -1193,18 +1517,18 @@ function handleStripeWebhook_(stripeEvent) {
     sessions: sessions,
     source: 'stripe',
     payment_status: session.payment_status || '',
-    currency: session.currency || 'eur',
+    currency: currency,
     customer_email: session.customer_details && session.customer_details.email || ''
   });
 
   logPayment_({
     stripe_event_id: stripeEvent.id || '',
-    payment_link_id: metadata.payment_link_id || session.payment_link || '',
+    payment_link_id: paymentLinkId,
     machine_id: machine.machine_id,
     machine_name: machine.machine_name,
     amount: amountCents,
     amount_cents: amountCents,
-    currency: session.currency || 'eur',
+    currency: currency,
     stripe_status: session.payment_status || '',
     mqtt_publish_status: commandResult.ok ? 'published' : 'publish_failed',
     f4_ack_status: 'pending',
@@ -1233,7 +1557,7 @@ function recomputeDailySummary() {
     if (row.status !== 'published') {
       return;
     }
-    const date = Utilities.formatDate(new Date(row.timestamp), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    const date = Utilities.formatDate(new Date(row.timestamp), PARIS_TIMEZONE, 'yyyy-MM-dd');
     const key = [date, row.machine_id].join('|');
     if (!buckets[key]) {
       buckets[key] = {
